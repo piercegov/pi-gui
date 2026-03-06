@@ -18,6 +18,7 @@ type ReviewState = {
 	diffMode: DiffMode;
 	currentDiff?: DiffSnapshotView;
 	diffStale: boolean;
+	_diffRequestId: number;
 	hydrate: (hydration: SessionHydration) => void;
 	setSelectedRevision: (n: number) => void;
 	setDiffMode: (mode: DiffMode) => void;
@@ -44,6 +45,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	diffMode: "incremental",
 	currentDiff: undefined,
 	diffStale: false,
+	_diffRequestId: 0,
 	hydrate(hydration) {
 		const activeNum = hydration.activeRevisionNumber;
 		set({
@@ -73,8 +75,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	async buildRevisionDiff(revisionNumber, mode) {
 		const sessionId = get().sessionId;
 		if (!sessionId) return;
+		const requestId = get()._diffRequestId + 1;
+		set({ _diffRequestId: requestId });
 		try {
 			const diff = await rpc.request.buildRevisionDiff({ sessionId, revisionNumber, mode });
+			if (get()._diffRequestId !== requestId) return; // superseded
 			set({
 				currentDiff: diff,
 				diffStale: false,
