@@ -14,6 +14,7 @@ import { ConversationPane } from "./components/chat/conversation-pane";
 import { DiffPane } from "./components/diff/diff-pane";
 import { TerminalDrawer } from "./components/terminal/terminal-drawer";
 import { SettingsDialog } from "./components/settings/settings-dialog";
+import { PromptDialog } from "./components/shared/prompt-dialog";
 
 function ResizeHandle(props: {
 	onDrag: (delta: number) => void;
@@ -89,6 +90,13 @@ export function App() {
 	const appendTerminalOutput = useTerminalStore((state) => state.appendOutput);
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
+	const [promptDialog, setPromptDialog] = useState<{
+		title: string;
+		defaultValue?: string;
+		placeholder?: string;
+		confirmLabel?: string;
+		onConfirm: (value: string) => void;
+	} | null>(null);
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -213,15 +221,26 @@ export function App() {
 		await addProject(path);
 	};
 
-	const handleCreateSession = async () => {
+	const handleCreateSession = async (name?: string) => {
 		if (!selectedProjectId) return;
-		const name = window.prompt("Session name (optional)") ?? undefined;
-		const session = await createSession(selectedProjectId, { name });
+		const session = await createSession(selectedProjectId, { name: name || undefined });
 		startTransition(() => {
 			void openSession(session.id).then(async (hydration) => {
 				applyHydration(hydration);
 				await loadInspector(session.id);
 			});
+		});
+	};
+
+	const promptCreateSession = () => {
+		setPromptDialog({
+			title: "New session",
+			placeholder: "Session name (optional)",
+			confirmLabel: "Create",
+			onConfirm: (value) => {
+				setPromptDialog(null);
+				void handleCreateSession(value);
+			},
 		});
 	};
 
@@ -231,10 +250,18 @@ export function App() {
 		await loadInspector(sessionId);
 	};
 
-	const handleRenameSession = async (session: SessionSummary) => {
-		const name = window.prompt("Rename session", session.displayName)?.trim();
-		if (!name || name === session.displayName) return;
-		await renameSession(session.id, name);
+	const handleRenameSession = (session: SessionSummary) => {
+		setPromptDialog({
+			title: "Rename session",
+			defaultValue: session.displayName,
+			confirmLabel: "Rename",
+			onConfirm: (name) => {
+				setPromptDialog(null);
+				if (name && name !== session.displayName) {
+					void renameSession(session.id, name);
+				}
+			},
+		});
 	};
 
 	const handleArchiveSession = async (session: SessionSummary, archived: boolean) => {
@@ -290,7 +317,7 @@ export function App() {
 			if (typingTarget && key !== ",") return;
 			if (key === "n") {
 				event.preventDefault();
-				void handleCreateSession();
+				void promptCreateSession();
 			}
 			if (key === ",") {
 				event.preventDefault();
@@ -313,7 +340,7 @@ export function App() {
 		<div className="flex h-full flex-col bg-surface-0">
 			<TitleBar
 				session={currentSession}
-				onNewSession={() => void handleCreateSession()}
+				onNewSession={() => void promptCreateSession()}
 				onToggleTerminal={toggleTerminal}
 				onToggleReviewPane={toggleReviewPane}
 				reviewPaneOpen={reviewPaneOpen}
@@ -332,14 +359,14 @@ export function App() {
 					onOpenSession={(sessionId) => void handleOpenSession(sessionId)}
 					onAddProject={() => void promptForProjectPath()}
 					onRemoveProject={(projectId) => void removeProject(projectId)}
-					onCreateSession={() => void handleCreateSession()}
+					onCreateSession={() => void promptCreateSession()}
 					onOpenProjectInEditor={(projectId) =>
 						void rpc.request.openProjectInEditor({ projectId })
 					}
 					onRevealProject={(projectId) =>
 						void rpc.request.revealProject({ projectId })
 					}
-					onRenameSession={(session) => void handleRenameSession(session)}
+					onRenameSession={(session) => handleRenameSession(session)}
 					onArchiveSession={(session, archived) =>
 						void handleArchiveSession(session, archived)
 					}
@@ -437,6 +464,16 @@ export function App() {
 				settings={settings}
 				onOpenChange={setSettingsOpen}
 				onUpdate={updateSettings}
+			/>
+
+			<PromptDialog
+				open={promptDialog !== null}
+				title={promptDialog?.title ?? ""}
+				defaultValue={promptDialog?.defaultValue}
+				placeholder={promptDialog?.placeholder}
+				confirmLabel={promptDialog?.confirmLabel}
+				onConfirm={(value) => promptDialog?.onConfirm(value)}
+				onCancel={() => setPromptDialog(null)}
 			/>
 
 			{/* Status bar */}
