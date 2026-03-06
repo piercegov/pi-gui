@@ -420,15 +420,20 @@ export class ReviewService {
 	}
 
 	private buildRoundSummaryMarkdown(round: ReviewRoundView) {
+		const threadEntries = round.threads.map((thread) => {
+			const body = thread.messages
+				.map((message) => `- ${message.authorType}: ${message.bodyMarkdown}`)
+				.join("\n");
+			return `### ${thread.filePath}:${thread.anchor.line} (thread: ${thread.id})\n${body}`;
+		});
 		return [
-			`Review round ${round.seq}`,
+			`# Review round ${round.seq}`,
 			"",
-			...round.threads.map((thread) => {
-				const body = thread.messages
-					.map((message) => `- ${message.authorType}: ${message.bodyMarkdown}`)
-					.join("\n");
-				return `### ${thread.filePath}:${thread.anchor.line}\n${body}`;
-			}),
+			"You MUST respond using the **review_reply** tool. Do NOT reply in chat.",
+			`Pass reviewRoundId: "${round.id}" and include a response for each thread below.`,
+			"For each thread, provide: threadId, disposition (acknowledged|needs_clarification|proposed_change|decline_change), and reply text.",
+			"",
+			...threadEntries,
 		].join("\n");
 	}
 

@@ -60,6 +60,8 @@ type ManagedRuntime = {
 	resourceLoader: DefaultResourceLoader;
 	toolActivity: ToolActivityView[];
 	lastAssistantId?: string;
+	lastMessageIndex?: number;
+	nextTurnIndex?: number;
 };
 
 export class PiRuntimeManager {
@@ -344,34 +346,40 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "turn_start") {
-			const turnEvent = event as AgentSessionEvent & { turnIndex: number };
+			const turnEvent = event as AgentSessionEvent & { turnIndex?: number };
+			const turnIndex = turnEvent.turnIndex ?? runtime.nextTurnIndex ?? 0;
+			runtime.nextTurnIndex = turnIndex + 1;
 			await this.hooks?.onTurnStart(
 				runtime.record.id,
-				turnEvent.turnIndex,
+				turnIndex,
 				event,
 			);
 			return;
 		}
 		if (event.type === "turn_end") {
-			const turnEvent = event as AgentSessionEvent & { turnIndex: number };
+			const turnEvent = event as AgentSessionEvent & { turnIndex?: number };
+			const turnIndex = turnEvent.turnIndex ?? (runtime.nextTurnIndex ? runtime.nextTurnIndex - 1 : 0);
 			await this.hooks?.onTurnEnd(
 				runtime.record.id,
-				turnEvent.turnIndex,
+				turnIndex,
 				event,
 			);
 			return;
 		}
 		if (event.type === "message_start") {
+			const messageIndex = runtime.session.messages.length;
 			const entry = this.mapConversationMessage(
 				runtime.record.id,
 				event.message,
-				runtime.session.messages.length,
+				messageIndex,
 			);
 			if (!entry) return;
 			if (entry.kind === "assistant") {
 				entry.status = "streaming";
 				runtime.lastAssistantId = entry.id;
 			}
+			// Track the index so message_end can reuse the same ID
+			runtime.lastMessageIndex = messageIndex;
 			this.emitStreamEvent({
 				type: "message_upsert",
 				entry,
@@ -390,10 +398,13 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "message_end") {
+			// Reuse the index from message_start so the ID matches
+			const messageIndex = runtime.lastMessageIndex ?? runtime.session.messages.length;
+			runtime.lastMessageIndex = undefined;
 			const entry = this.mapConversationMessage(
 				runtime.record.id,
 				event.message,
-				runtime.session.messages.length,
+				messageIndex,
 			);
 			if (!entry) return;
 			this.emitStreamEvent({
@@ -540,21 +551,40 @@ export class PiRuntimeManager {
 		return runtime.session;
 	}
 
+	private emitUserMessage(runtime: ManagedRuntime, sessionId: string, text: string) {
+		const userIndex = runtime.session.messages.length;
+		this.emitStreamEvent({
+			type: "message_upsert",
+			entry: {
+				id: `${sessionId}-message-${userIndex}`,
+				sessionId,
+				kind: "user",
+				timestamp: Date.now(),
+				markdown: text,
+				status: "done",
+				metadata: {},
+			},
+		});
+	}
+
 	async sendPrompt(sessionId: string, text: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) throw new Error("Session runtime not loaded.");
+		this.emitUserMessage(runtime, sessionId, text);
 		await runtime.session.prompt(text);
 	}
 
 	async steerSession(sessionId: string, text: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) throw new Error("Session runtime not loaded.");
+		this.emitUserMessage(runtime, sessionId, text);
 		await runtime.session.steer(text);
 	}
 
 	async followUpSession(sessionId: string, text: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) throw new Error("Session runtime not loaded.");
+		this.emitUserMessage(runtime, sessionId, text);
 		await runtime.session.followUp(text);
 	}
 

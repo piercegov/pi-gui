@@ -767,6 +767,12 @@ export class SessionService {
 	async onTurnStart(sessionId: string, turnIndex: number, event: AgentSessionEvent) {
 		const row = this.getSessionRow(sessionId);
 		if (!row) return;
+		const safeTurnIndex =
+			turnIndex ??
+			((this.db.get<{ m: number | null }>(
+				"select max(turn_index) as m from turns where session_id = ?",
+				sessionId,
+			)?.m ?? -1) + 1);
 		let checkpoint: CheckpointRecord | null = null;
 		if (await this.git.isGitRepo(row.cwd_path)) {
 			checkpoint = await this.checkpoints.createCheckpoint({
@@ -787,7 +793,7 @@ export class SessionService {
 			`,
 			crypto.randomUUID(),
 			sessionId,
-			turnIndex,
+			safeTurnIndex,
 			Date.now(),
 			JSON.stringify(event),
 			checkpoint?.id ?? null,
@@ -797,6 +803,12 @@ export class SessionService {
 	async onTurnEnd(sessionId: string, turnIndex: number, event: AgentSessionEvent) {
 		const row = this.getSessionRow(sessionId);
 		if (!row) return;
+		const safeTurnIndex =
+			turnIndex ??
+			(this.db.get<{ m: number | null }>(
+				"select max(turn_index) as m from turns where session_id = ?",
+				sessionId,
+			)?.m ?? 0);
 		let checkpoint: CheckpointRecord | null = null;
 		if (await this.git.isGitRepo(row.cwd_path)) {
 			checkpoint = await this.checkpoints.createCheckpoint({
@@ -808,7 +820,7 @@ export class SessionService {
 		const turn = this.db.get<TurnRow>(
 			"select id, checkpoint_before_id, checkpoint_after_id from turns where session_id = ? and turn_index = ?",
 			sessionId,
-			turnIndex,
+			safeTurnIndex,
 		);
 		this.db.run(
 			`
@@ -820,7 +832,7 @@ export class SessionService {
 			JSON.stringify(event),
 			checkpoint?.id ?? null,
 			sessionId,
-			turnIndex,
+			safeTurnIndex,
 		);
 		await this.refreshGitStatus(sessionId);
 		const changedFiles = Number(
