@@ -92,7 +92,17 @@ export function App() {
 		const root = document.documentElement;
 		root.style.setProperty("--markdown-font-size", `${settings?.markdownFontSize ?? 15}px`);
 		root.style.setProperty("--code-font-size", `${settings?.codeFontSize ?? 14}px`);
-	}, [settings?.markdownFontSize, settings?.codeFontSize]);
+		const hex = settings?.accentColor ?? "#05A0D1";
+		const r = parseInt(hex.slice(1, 3), 16);
+		const g = parseInt(hex.slice(3, 5), 16);
+		const b = parseInt(hex.slice(5, 7), 16);
+		root.style.setProperty("--accent", hex);
+		root.style.setProperty("--accent-soft", `rgba(${r}, ${g}, ${b}, 0.12)`);
+		root.style.setProperty("--state-running", settings?.stateRunningColor ?? "#3ddc84");
+		root.style.setProperty("--state-review", settings?.stateReviewColor ?? "#f0a830");
+		root.style.setProperty("--state-error", settings?.stateErrorColor ?? "#f44336");
+		root.style.setProperty("--state-applied", settings?.stateAppliedColor ?? "#66bb6a");
+	}, [settings?.markdownFontSize, settings?.codeFontSize, settings?.accentColor, settings?.stateRunningColor, settings?.stateReviewColor, settings?.stateErrorColor, settings?.stateAppliedColor]);
 
 	const sessions = useMemo(
 		() => (selectedProjectId ? sessionsByProject[selectedProjectId] ?? [] : []),

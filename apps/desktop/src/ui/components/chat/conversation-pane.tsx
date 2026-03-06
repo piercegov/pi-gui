@@ -199,7 +199,7 @@ function ToolInvocationCard(props: { entry: ConversationEntryView }) {
 					</span>
 				)}
 				{isDone && (
-					<span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-2xs text-green-400/80">
+					<span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-2xs text-accent">
 						<CheckCircle2 className="h-3 w-3" />
 						Done
 					</span>

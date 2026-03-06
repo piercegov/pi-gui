@@ -254,6 +254,11 @@ export interface AppSettings {
 	archiveRetentionPolicy: "manual" | "30d" | "90d";
 	showArchived: boolean;
 	uiDensity: "compact" | "comfortable";
+	accentColor: string;
+	stateRunningColor: string;
+	stateReviewColor: string;
+	stateErrorColor: string;
+	stateAppliedColor: string;
 }
 
 export interface SessionHydration {

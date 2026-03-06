@@ -115,6 +115,53 @@ export function SettingsDialog(props: {
 
 							<Tabs.Content value="appearance" className="space-y-0">
 								<SettingField
+									label="Accent color"
+									description="Primary UI highlight color used for links, buttons, and active states."
+								>
+									<div className="flex items-center gap-3">
+										<input
+											type="color"
+											value={props.settings?.accentColor ?? "#05A0D1"}
+											onChange={(event) =>
+												void props.onUpdate({ accentColor: event.target.value })
+											}
+											className="h-8 w-8 cursor-pointer border border-surface-border bg-transparent p-0"
+										/>
+										<input
+											value={props.settings?.accentColor ?? "#05A0D1"}
+											onChange={(event) =>
+												void props.onUpdate({ accentColor: event.target.value })
+											}
+											className="w-28 border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm uppercase text-white/70 outline-none"
+										/>
+									</div>
+								</SettingField>
+								<SettingField
+									label="Status colors"
+									description="Colors for session status indicators."
+								>
+									<div className="grid grid-cols-2 gap-3">
+										{([
+											["stateRunningColor", "Running", "#3ddc84"],
+											["stateReviewColor", "Reviewing", "#f0a830"],
+											["stateErrorColor", "Error", "#f44336"],
+											["stateAppliedColor", "Applied", "#66bb6a"],
+										] as const).map(([key, label, fallback]) => (
+											<div key={key} className="flex items-center gap-2">
+												<input
+													type="color"
+													value={props.settings?.[key] ?? fallback}
+													onChange={(event) =>
+														void props.onUpdate({ [key]: event.target.value })
+													}
+													className="h-6 w-6 cursor-pointer border border-surface-border bg-transparent p-0"
+												/>
+												<span className="text-xs text-white/50">{label}</span>
+											</div>
+										))}
+									</div>
+								</SettingField>
+								<SettingField
 									label="Diff view"
 									description="Choose the default diff rendering mode."
 								>

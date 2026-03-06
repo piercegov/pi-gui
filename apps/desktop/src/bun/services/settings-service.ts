@@ -13,6 +13,11 @@ export const defaultAppSettings: AppSettings = {
 	archiveRetentionPolicy: "manual",
 	showArchived: false,
 	uiDensity: "compact",
+	accentColor: "#05A0D1",
+	stateRunningColor: "#3ddc84",
+	stateReviewColor: "#f0a830",
+	stateErrorColor: "#f44336",
+	stateAppliedColor: "#66bb6a",
 };
 
 type PreferenceRow = {
