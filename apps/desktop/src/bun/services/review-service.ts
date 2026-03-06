@@ -292,7 +292,9 @@ export class ReviewService {
 			JSON.stringify({}),
 		);
 		this.setSessionReviewState(sessionId, "reviewing");
-		return this.getRevision(id)!;
+		const revision = this.getRevision(id)!;
+		this.messenger.revisionUpdated(revision);
+		return revision;
 	}
 
 	async createThread(reviewRoundId: string, anchor: CommentAnchor, body: string) {
