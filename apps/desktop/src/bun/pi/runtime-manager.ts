@@ -64,6 +64,8 @@ type ManagedRuntime = {
 	lastAssistantId?: string;
 	lastMessageIndex?: number;
 	nextTurnIndex?: number;
+	/** Monotonic counter for stable entry IDs during streaming. */
+	nextMessageEmitIndex: number;
 };
 
 export class PiRuntimeManager {
@@ -380,7 +382,7 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "message_start") {
-			const messageIndex = runtime.session.messages.length;
+			const messageIndex = runtime.nextMessageEmitIndex++;
 			const entry = this.mapConversationMessage(
 				runtime.record.id,
 				event.message,
@@ -411,7 +413,7 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "message_end") {
-			const messageIndex = runtime.lastMessageIndex ?? runtime.session.messages.length;
+			const messageIndex = runtime.lastMessageIndex ?? runtime.nextMessageEmitIndex++;
 			runtime.lastMessageIndex = undefined;
 			const entry = this.mapConversationMessage(
 				runtime.record.id,
@@ -558,6 +560,7 @@ export class PiRuntimeManager {
 			resourceLoader,
 			toolActivity: [],
 			unsubscribe: () => undefined,
+			nextMessageEmitIndex: session.messages.length,
 		};
 		await this.bindRuntime(runtime);
 		this.runtimes.set(record.id, runtime);
@@ -570,7 +573,7 @@ export class PiRuntimeManager {
 	}
 
 	private emitUserMessage(runtime: ManagedRuntime, sessionId: string, text: string) {
-		const userIndex = runtime.session.messages.length;
+		const userIndex = runtime.nextMessageEmitIndex++;
 		this.emitStreamEvent({
 			type: "message_upsert",
 			entry: {
