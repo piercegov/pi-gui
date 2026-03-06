@@ -229,6 +229,7 @@ export function DiffPane(props: {
 	const [draftBody, setDraftBody] = useState("");
 	const [unresolvedOnly, setUnresolvedOnly] = useState(false);
 	const [inspectorOpen, setInspectorOpen] = useState(false);
+	const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
 	const [selectionPopup, setSelectionPopup] = useState<{
 		x: number;
 		y: number;
@@ -243,6 +244,11 @@ export function DiffPane(props: {
 		() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
 		[props.diff],
 	);
+
+	// Reset collapsed files when diff changes
+	useEffect(() => {
+		setCollapsedFiles(new Set());
+	}, [props.diff?.id]);
 
 	const visibleThreads = useMemo(() => {
 		const threads = props.activeReviewRound?.threads ?? [];
@@ -454,9 +460,9 @@ export function DiffPane(props: {
 						className="flex items-center gap-1 border border-surface-border bg-surface-2 px-2 py-1 text-xs text-white/50 transition hover:text-white/70"
 					>
 						{viewType === "split" ? (
-							<><Rows3 className="h-3 w-3" /> Unified</>
-						) : (
 							<><SplitSquareHorizontal className="h-3 w-3" /> Split</>
+						) : (
+							<><Rows3 className="h-3 w-3" /> Unified</>
 						)}
 					</button>
 					<div className="relative">
@@ -585,15 +591,33 @@ export function DiffPane(props: {
 							const path = file.newPath || file.oldPath;
 							const lang = langFromPath(path);
 							const tokens = tokenizeHunks(file.hunks, lang);
+							const isCollapsed = collapsedFiles.has(path);
+							const stats = fileStats(file);
 							return (
 								<div key={`${file.oldRevision}-${file.newRevision}`} data-file-path={path}>
-									<div className="mb-1.5 flex items-center justify-between border-b border-surface-border pb-1.5">
-										<span className="mono text-xs text-white/60">{path}</span>
+									<button
+										type="button"
+										onClick={() =>
+											setCollapsedFiles((prev) => {
+												const next = new Set(prev);
+												if (next.has(path)) next.delete(path);
+												else next.add(path);
+												return next;
+											})
+										}
+										className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
+									>
+										<ChevronRight
+											className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+										/>
+										<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
+										<span className="text-2xs text-state-applied">+{stats.additions}</span>
+										<span className="text-2xs text-state-error">-{stats.deletions}</span>
 										<span className="text-2xs uppercase tracking-wider text-white/25">
 											{file.type}
 										</span>
-									</div>
-									<Diff
+									</button>
+									{isCollapsed ? null : <Diff
 										viewType={viewType}
 										diffType={file.type}
 										hunks={file.hunks}
@@ -691,7 +715,7 @@ export function DiffPane(props: {
 										)}
 									>
 										{(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-									</Diff>
+									</Diff>}
 								</div>
 							);
 						})}
