@@ -85,6 +85,12 @@ select {
 	app-region: no-drag;
 }
 
+.electrobun-webkit-app-region-drag {
+	-webkit-user-select: none;
+	user-select: none;
+	cursor: default;
+}
+
 .mono {
 	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
