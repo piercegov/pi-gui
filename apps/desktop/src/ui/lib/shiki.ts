@@ -9,7 +9,7 @@ export function highlightCode(code: string, language: string) {
 			key,
 			codeToHtml(code, {
 				lang: language || "text",
-				theme: "github-light-default",
+				theme: "github-dark-default",
 			}),
 		);
 	}

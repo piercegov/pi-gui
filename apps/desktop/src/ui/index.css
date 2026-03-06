@@ -1,4 +1,5 @@
 @import "xterm/css/xterm.css";
+@import "react-diff-view/style/index.css";
 
 @tailwind base;
 @tailwind components;
@@ -127,12 +128,15 @@ select {
 	--diff-selection-background-color: rgba(61, 220, 132, 0.2);
 	--diff-code-insert-background-color: var(--diff-add);
 	--diff-code-delete-background-color: var(--diff-del);
-	--diff-code-insert-edit-background-color: var(--diff-add);
-	--diff-code-delete-edit-background-color: var(--diff-del);
-	--diff-gutter-insert-background-color: var(--diff-add);
-	--diff-gutter-delete-background-color: var(--diff-del);
-	--diff-code-insert-border-color: var(--diff-add-border);
-	--diff-code-delete-border-color: var(--diff-del-border);
+	--diff-code-insert-edit-background-color: rgba(61, 220, 132, 0.22);
+	--diff-code-delete-edit-background-color: rgba(244, 67, 54, 0.22);
+	--diff-code-insert-text-color: var(--ink-strong);
+	--diff-code-delete-text-color: var(--ink-strong);
+	--diff-gutter-insert-background-color: rgba(61, 220, 132, 0.15);
+	--diff-gutter-delete-background-color: rgba(244, 67, 54, 0.15);
+	--diff-gutter-insert-text-color: rgba(61, 220, 132, 0.7);
+	--diff-gutter-delete-text-color: rgba(244, 67, 54, 0.7);
+	--diff-omit-gutter-line-color: rgba(255, 255, 255, 0.15);
 	font-size: 12px;
 }
 
@@ -148,4 +152,66 @@ select {
 .xterm {
 	height: 100%;
 	padding: 0.5rem 0.75rem;
+}
+
+/* Prism/refractor syntax token colors for diff highlighting */
+.diff-shell .token.comment,
+.diff-shell .token.prolog,
+.diff-shell .token.doctype,
+.diff-shell .token.cdata {
+	color: rgba(255, 255, 255, 0.3);
+}
+
+.diff-shell .token.punctuation {
+	color: rgba(255, 255, 255, 0.5);
+}
+
+.diff-shell .token.property,
+.diff-shell .token.tag,
+.diff-shell .token.boolean,
+.diff-shell .token.number,
+.diff-shell .token.constant,
+.diff-shell .token.symbol {
+	color: #f78c6c;
+}
+
+.diff-shell .token.selector,
+.diff-shell .token.attr-name,
+.diff-shell .token.string,
+.diff-shell .token.char,
+.diff-shell .token.inserted {
+	color: #3ddc84;
+}
+
+.diff-shell .token.operator,
+.diff-shell .token.entity,
+.diff-shell .token.url {
+	color: #89ddff;
+}
+
+.diff-shell .token.atrule,
+.diff-shell .token.attr-value,
+.diff-shell .token.keyword {
+	color: #c792ea;
+}
+
+.diff-shell .token.function,
+.diff-shell .token.class-name {
+	color: #82aaff;
+}
+
+.diff-shell .token.regex,
+.diff-shell .token.important,
+.diff-shell .token.variable {
+	color: #f07178;
+}
+
+.diff-shell .token.deleted {
+	color: #f44336;
+}
+
+/* Word-level edit markers from markEdits */
+.diff-shell .diff-code-edit {
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 2px;
 }

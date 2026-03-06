@@ -41,15 +41,21 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	activeReviewRoundId: undefined,
 	diffStale: false,
 	hydrate(hydration) {
+		const defaultScope =
+			hydration.currentDiff?.scope ??
+			hydration.diffScopes.find((s) => s.available)?.scope;
 		set({
 			sessionId: hydration.session.id,
 			diffScopes: hydration.diffScopes,
 			currentDiff: hydration.currentDiff,
-			currentScope: hydration.currentDiff?.scope,
+			currentScope: defaultScope,
 			reviewRounds: hydration.reviewRounds,
 			activeReviewRoundId: hydration.activeReviewRoundId,
 			diffStale: false,
 		});
+		if (!hydration.currentDiff && defaultScope) {
+			void get().buildDiff(defaultScope);
+		}
 	},
 	async buildDiff(scope) {
 		const sessionId = get().sessionId;
@@ -126,5 +132,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		if (sessionId !== get().sessionId) return;
 		if (scope && scope !== get().currentScope) return;
 		set({ diffStale: true });
+		const refreshScope =
+			get().currentScope ??
+			get().diffScopes.find((s) => s.available)?.scope;
+		if (refreshScope) {
+			void get().buildDiff(refreshScope);
+		}
 	},
 }));

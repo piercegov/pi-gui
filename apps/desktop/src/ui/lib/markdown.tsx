@@ -25,12 +25,12 @@ function CodeBlock(props: {
 	}, [code, language, props.inline]);
 
 	if (props.inline) {
-		return <code className="rounded bg-black/5 px-1 py-0.5">{code}</code>;
+		return <code>{code}</code>;
 	}
 
 	if (!html) {
 		return (
-			<pre className="overflow-auto rounded-xl bg-black/[0.04] p-3 mono">
+			<pre className="overflow-auto mono">
 				<code>{code}</code>
 			</pre>
 		);
@@ -38,7 +38,7 @@ function CodeBlock(props: {
 
 	return (
 		<div
-			className="overflow-auto rounded-xl border border-black/5"
+			className="overflow-auto [&_pre]:!bg-transparent [&_pre]:p-3"
 			dangerouslySetInnerHTML={{ __html: html }}
 		/>
 	);
@@ -64,7 +64,7 @@ export function MarkdownRenderer(props: { markdown: string; className?: string }
 						return (
 							<a
 								href={safeHref}
-								className="text-[color:var(--accent)] underline underline-offset-2"
+								className="text-accent underline underline-offset-2"
 							>
 								{children}
 							</a>

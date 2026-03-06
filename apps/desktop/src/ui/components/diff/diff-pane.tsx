@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { getChangeKey, Diff, Hunk, parseDiff } from "react-diff-view";
+import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-diff-view";
+import type { HunkTokens } from "react-diff-view";
+import { refractor } from "refractor";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info } from "lucide-react";
 import type {
@@ -18,6 +20,58 @@ import {
 } from "@ui/lib/diff-utils";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 import { SessionInspector } from "./session-inspector";
+
+const EXT_TO_LANG: Record<string, string> = {
+	ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+	py: "python", rb: "ruby", rs: "rust", go: "go",
+	java: "java", kt: "kotlin", swift: "swift", c: "c",
+	cpp: "cpp", h: "cpp", cs: "csharp", css: "css",
+	scss: "scss", html: "html", vue: "vue", svelte: "svelte",
+	json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
+	md: "markdown", sql: "sql", sh: "bash", bash: "bash",
+	zsh: "bash", fish: "bash", dockerfile: "docker",
+	xml: "xml", graphql: "graphql", lua: "lua", zig: "zig",
+};
+
+function langFromPath(path: string): string | undefined {
+	const ext = path.split(".").pop()?.toLowerCase();
+	if (!ext) return undefined;
+	const lang = EXT_TO_LANG[ext];
+	if (!lang) return undefined;
+	try {
+		refractor.highlight("", lang);
+		return lang;
+	} catch {
+		return undefined;
+	}
+}
+
+// refractor v5 returns { type: "root", children: [...] } but react-diff-view
+// expects the old v3 API that returns children directly as an iterable.
+const refractorCompat = {
+	highlight(code: string, language: string) {
+		const result = refractor.highlight(code, language);
+		return result.children;
+	},
+};
+
+function tokenizeHunks(
+	hunks: Parameters<typeof tokenize>[0],
+	language?: string,
+): HunkTokens | undefined {
+	if (!hunks.length) return undefined;
+	try {
+		const options = language
+			? { highlight: true as const, refractor: refractorCompat, language }
+			: { highlight: false as const };
+		return tokenize(hunks, {
+			...options,
+			enhancers: [markEdits(hunks, { type: "block" })],
+		});
+	} catch {
+		return undefined;
+	}
+}
 
 function InlineThread(props: {
 	threads: CommentThreadView[];
@@ -162,7 +216,8 @@ export function DiffPane(props: {
 	const rowVirtualizer = useVirtualizer({
 		count: filteredFiles.length,
 		getScrollElement: () => fileListParentRef.current,
-		estimateSize: () => 36,
+		estimateSize: () => 44,
+		gap: 1,
 	});
 
 	const currentRoundState = props.activeReviewRound?.state;
@@ -349,6 +404,8 @@ export function DiffPane(props: {
 					<div className="space-y-4">
 						{filteredFiles.map((file) => {
 							const path = file.newPath || file.oldPath;
+							const lang = langFromPath(path);
+							const tokens = tokenizeHunks(file.hunks, lang);
 							return (
 								<div key={`${file.oldRevision}-${file.newRevision}`}>
 									<div className="mb-1.5 flex items-center justify-between border-b border-surface-border pb-1.5">
@@ -361,6 +418,7 @@ export function DiffPane(props: {
 										viewType={viewType}
 										diffType={file.type}
 										hunks={file.hunks}
+										tokens={tokens}
 										gutterType="default"
 										gutterEvents={{
 											onClick: ({ change }) => {
