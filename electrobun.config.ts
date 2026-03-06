@@ -15,6 +15,7 @@ export default {
 		copy: {
 			"apps/desktop/dist/index.html": "views/mainview/index.html",
 			"apps/desktop/dist/assets": "views/mainview/assets",
+			"build/lazy-providers/amazon-bedrock.js": "bun/amazon-bedrock.js",
 		},
 		watchIgnore: ["apps/desktop/dist/**"],
 		mac: {

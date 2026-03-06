@@ -259,6 +259,7 @@ export interface AppSettings {
 	stateReviewColor: string;
 	stateErrorColor: string;
 	stateAppliedColor: string;
+	environmentOverrides: Record<string, string>;
 }
 
 export interface SessionHydration {

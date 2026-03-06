@@ -5,12 +5,13 @@
 	"type": "module",
 	"workspaces": ["packages/*"],
 	"scripts": {
-		"start": "vite build && electrobun dev",
-		"dev": "electrobun dev --watch",
-		"dev:hmr": "concurrently \"bun run hmr\" \"electrobun dev --watch\"",
+		"prebuild:providers": "bun run scripts/bundle-bedrock-provider.ts",
+		"start": "bun run prebuild:providers && vite build && electrobun dev",
+		"dev": "bun run prebuild:providers && electrobun dev --watch",
+		"dev:hmr": "bun run prebuild:providers && concurrently \"bun run hmr\" \"electrobun dev --watch\"",
 		"hmr": "vite --port 5173",
-		"build": "vite build && electrobun build",
-		"build:canary": "vite build && electrobun build --env=canary",
+		"build": "bun run prebuild:providers && vite build && electrobun build",
+		"build:canary": "bun run prebuild:providers && vite build && electrobun build --env=canary",
 		"typecheck": "bunx tsc --noEmit"
 	},
 	"dependencies": {

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "commands": {
+    "allow": [
+      {
+        "prefix": [
+          "true"
+        ]
+      },
+      {
+        "prefix": [
+          "cd"
+        ]
+      },
+      {
+        "prefix": [
+          "sed"
+        ]
+      }
+    ],
+    "deny": []
+  },
+  "paths": {
+    "allowRead": [
+      "/.pi/agent",
+      "/Users/goverpie/.local/share/mise/installs/node/22.16.0/lib/node_modules/@mariozechner",
+      "/Users/goverpie/Library/Application Support/Pi GUI/pi-sessions"
+    ],
+    "denyRead": [],
+    "allowWrite": [],
+    "denyWrite": []
+  }
+}

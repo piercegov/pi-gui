@@ -100,7 +100,7 @@ const messenger: HostMessenger = {
 
 const checkpoints = new CheckpointService(db, git);
 const review = new ReviewService(db, checkpoints, git, messenger);
-const runtime = new PiRuntimeManager(messenger);
+const runtime = new PiRuntimeManager(messenger, settings);
 const sessions = new SessionService(
 	db,
 	projects,

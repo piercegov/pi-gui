@@ -3,3 +3,4 @@ build/*
 apps/desktop/dist/*
 .playwright-cli/*
 output/*
+.DS_Store

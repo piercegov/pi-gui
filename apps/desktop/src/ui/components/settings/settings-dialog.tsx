@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { X, CheckCircle2, AlertCircle } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { AppSettings } from "@shared/models";
 
@@ -43,6 +43,97 @@ function SettingField(props: {
 			<div className="text-xs text-white/80">{props.label}</div>
 			<div className="mt-0.5 text-2xs text-white/35">{props.description}</div>
 			<div className="mt-2">{props.children}</div>
+		</div>
+	);
+}
+
+const ENV_VAR_SUGGESTIONS = [
+	"AWS_PROFILE",
+	"AWS_REGION",
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"GEMINI_API_KEY",
+	"MISTRAL_API_KEY",
+	"AZURE_OPENAI_API_KEY",
+	"AZURE_OPENAI_BASE_URL",
+] as const;
+
+function EnvironmentOverridesEditor(props: {
+	overrides: Record<string, string>;
+	onUpdate: (overrides: Record<string, string>) => void;
+}) {
+	const entries = Object.entries(props.overrides);
+
+	const addEntry = () => {
+		props.onUpdate({ ...props.overrides, "": "" });
+	};
+
+	const removeEntry = (key: string) => {
+		const next = { ...props.overrides };
+		delete next[key];
+		props.onUpdate(next);
+	};
+
+	const updateEntry = (oldKey: string, newKey: string, value: string) => {
+		const next: Record<string, string> = {};
+		for (const [k, v] of Object.entries(props.overrides)) {
+			if (k === oldKey) {
+				next[newKey] = value;
+			} else {
+				next[k] = v;
+			}
+		}
+		props.onUpdate(next);
+	};
+
+	return (
+		<div className="space-y-2">
+			{entries.map(([key, value], index) => (
+				<div key={index} className="flex items-center gap-2">
+					<input
+						list="env-var-suggestions"
+						value={key}
+						placeholder="VARIABLE_NAME"
+						onChange={(e) => updateEntry(key, e.target.value, value)}
+						className="w-[180px] border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none font-mono"
+					/>
+					<span className="text-xs text-white/30">=</span>
+					<input
+						value={value}
+						placeholder="value"
+						onChange={(e) => updateEntry(key, key, e.target.value)}
+						type={key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") ? "password" : "text"}
+						className="flex-1 border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none font-mono"
+					/>
+					<button
+						type="button"
+						onClick={() => removeEntry(key)}
+						className="p-1 text-white/20 transition hover:text-red-400"
+					>
+						<Trash2 className="h-3.5 w-3.5" />
+					</button>
+				</div>
+			))}
+			<datalist id="env-var-suggestions">
+				{ENV_VAR_SUGGESTIONS.filter((s) => !props.overrides[s]).map((s) => (
+					<option key={s} value={s} />
+				))}
+			</datalist>
+			<button
+				type="button"
+				onClick={addEntry}
+				className="flex items-center gap-1.5 text-xs text-white/40 transition hover:text-white/60"
+			>
+				<Plus className="h-3.5 w-3.5" />
+				Add variable
+			</button>
+			{entries.length > 0 && (
+				<p className="text-2xs text-white/25">
+					Changes take effect on the next session created. Restart existing sessions to pick up new values.
+				</p>
+			)}
 		</div>
 	);
 }
@@ -251,6 +342,17 @@ export function SettingsDialog(props: {
 											})
 										}
 										className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
+									/>
+								</SettingField>
+								<SettingField
+									label="Environment variables"
+									description="Injected into the process before creating agent sessions. Useful for AWS_PROFILE, API keys, AWS_REGION, etc."
+								>
+									<EnvironmentOverridesEditor
+										overrides={props.settings?.environmentOverrides ?? {}}
+										onUpdate={(environmentOverrides) =>
+											void props.onUpdate({ environmentOverrides })
+										}
 									/>
 								</SettingField>
 							</Tabs.Content>

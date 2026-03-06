@@ -21,6 +21,7 @@ import {
 	type ReviewReplyPayload,
 } from "../../../../../packages/pi-review-extension/src/index";
 import type { HostMessenger } from "../services/host-messenger";
+import type { SettingsService } from "../services/settings-service";
 import { appPaths } from "../services/app-paths";
 
 const MUTATING_TOOLS = new Set(["write", "edit", "bash"]);
@@ -79,7 +80,10 @@ export class PiRuntimeManager {
 		getSessionIdByReviewRound(reviewRoundId: string): string | undefined;
 	};
 
-	constructor(private readonly messenger: HostMessenger) {}
+	constructor(
+		private readonly messenger: HostMessenger,
+		private readonly appSettings: SettingsService,
+	) {}
 
 	setHooks(hooks: RuntimeHooks) {
 		this.hooks = hooks;
@@ -122,13 +126,19 @@ export class PiRuntimeManager {
 					.filter((part) => part.type === "toolCall")
 					.map((part) => `- \`${part.name}\``)
 					.join("\n");
+				const isError = message.stopReason === "error";
+				const errorDetail =
+					isError && "errorMessage" in message && message.errorMessage
+						? `**Error:** ${String(message.errorMessage)}`
+						: "";
+				const parts = [markdown, toolCalls, errorDetail].filter(Boolean);
 				return {
 					id: `${sessionId}-message-${index}`,
 					sessionId,
 					kind: "assistant",
 					timestamp: message.timestamp,
-					markdown: [markdown, toolCalls].filter(Boolean).join("\n\n"),
-					status: message.stopReason === "error" ? "error" : "done",
+					markdown: parts.join("\n\n"),
+					status: isError ? "error" : "done",
 					metadata: {
 						model: `${message.provider}/${message.model}`,
 						stopReason: message.stopReason,
@@ -542,6 +552,15 @@ export class PiRuntimeManager {
 			],
 		});
 		await resourceLoader.reload();
+
+		// Apply user-configured environment overrides (e.g. AWS_PROFILE, API keys)
+		const { environmentOverrides } = this.appSettings.getAppSettings();
+		for (const [key, value] of Object.entries(environmentOverrides)) {
+			if (key && value) {
+				process.env[key] = value;
+			}
+		}
+
 		const sessionManager = record.piSessionFile
 			? SessionManager.open(record.piSessionFile, appPaths.sessionStoreDir)
 			: SessionManager.create(record.cwdPath, appPaths.sessionStoreDir);
