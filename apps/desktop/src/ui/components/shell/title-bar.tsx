@@ -1,4 +1,4 @@
-import { Terminal, Plus, Settings, ChevronRight } from "lucide-react";
+import { Terminal, Plus, Settings, ChevronRight, PanelRight } from "lucide-react";
 import type { SessionSummary } from "@shared/models";
 
 function statusColor(status: SessionSummary["status"]) {
@@ -13,6 +13,8 @@ export function TitleBar(props: {
 	session?: SessionSummary;
 	onNewSession: () => void;
 	onToggleTerminal: () => void;
+	onToggleReviewPane: () => void;
+	reviewPaneOpen: boolean;
 	onOpenSettings: () => void;
 	supportsEmbeddedTerminal: boolean;
 }) {
@@ -52,6 +54,15 @@ export function TitleBar(props: {
 					title="Toggle terminal (Cmd+J)"
 				>
 					<Terminal className="h-3.5 w-3.5" />
+				</button>
+				<button
+					onClick={props.onToggleReviewPane}
+					className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition hover:bg-white/8 hover:text-white/80 ${
+						props.reviewPaneOpen ? "text-accent" : "text-white/60"
+					}`}
+					title="Toggle review pane (Cmd+R)"
+				>
+					<PanelRight className="h-3.5 w-3.5" />
 				</button>
 				<button
 					onClick={props.onOpenSettings}

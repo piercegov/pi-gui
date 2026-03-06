@@ -3,11 +3,14 @@ import { create } from "zustand";
 type LayoutState = {
 	terminalOpen: boolean;
 	settingsOpen: boolean;
+	reviewPaneOpen: boolean;
 	sidebarWidth: number;
 	diffPaneWidth: number;
 	toggleTerminal: () => void;
 	setTerminalOpen: (open: boolean) => void;
 	setSettingsOpen: (open: boolean) => void;
+	toggleReviewPane: () => void;
+	setReviewPaneOpen: (open: boolean) => void;
 	setSidebarWidth: (width: number) => void;
 	adjustSidebarWidth: (delta: number) => void;
 	setDiffPaneWidth: (width: number, maxWidth?: number) => void;
@@ -17,6 +20,7 @@ type LayoutState = {
 export const useLayoutStore = create<LayoutState>((set) => ({
 	terminalOpen: true,
 	settingsOpen: false,
+	reviewPaneOpen: true,
 	sidebarWidth: 240,
 	diffPaneWidth: 480,
 	toggleTerminal() {
@@ -27,6 +31,12 @@ export const useLayoutStore = create<LayoutState>((set) => ({
 	},
 	setSettingsOpen(open) {
 		set({ settingsOpen: open });
+	},
+	toggleReviewPane() {
+		set((state) => ({ reviewPaneOpen: !state.reviewPaneOpen }));
+	},
+	setReviewPaneOpen(open) {
+		set({ reviewPaneOpen: open });
 	},
 	setSidebarWidth(width) {
 		set({ sidebarWidth: Math.max(160, Math.min(400, width)) });

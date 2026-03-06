@@ -80,6 +80,8 @@ export function App() {
 	const toggleTerminal = useLayoutStore((state) => state.toggleTerminal);
 	const settingsOpen = useLayoutStore((state) => state.settingsOpen);
 	const setSettingsOpen = useLayoutStore((state) => state.setSettingsOpen);
+	const reviewPaneOpen = useLayoutStore((state) => state.reviewPaneOpen);
+	const toggleReviewPane = useLayoutStore((state) => state.toggleReviewPane);
 	const sidebarWidth = useLayoutStore((state) => state.sidebarWidth);
 	const adjustSidebarWidth = useLayoutStore((state) => state.adjustSidebarWidth);
 	const diffPaneWidth = useLayoutStore((state) => state.diffPaneWidth);
@@ -298,10 +300,14 @@ export function App() {
 				event.preventDefault();
 				toggleTerminal();
 			}
+			if (key === "r") {
+				event.preventDefault();
+				toggleReviewPane();
+			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [selectedProjectId, setSettingsOpen, toggleTerminal]);
+	}, [selectedProjectId, setSettingsOpen, toggleTerminal, toggleReviewPane]);
 
 	return (
 		<div className="flex h-full flex-col bg-surface-0">
@@ -309,6 +315,8 @@ export function App() {
 				session={currentSession}
 				onNewSession={() => void handleCreateSession()}
 				onToggleTerminal={toggleTerminal}
+				onToggleReviewPane={toggleReviewPane}
+				reviewPaneOpen={reviewPaneOpen}
 				onOpenSettings={() => setSettingsOpen(true)}
 				supportsEmbeddedTerminal={supportsEmbeddedTerminal}
 			/>
@@ -375,42 +383,46 @@ export function App() {
 				/>
 				</div>
 
-				<ResizeHandle onDrag={(delta) => adjustDiffPaneWidth(-delta, Math.floor(window.innerWidth * 0.8))} />
+				{reviewPaneOpen && (
+					<>
+					<ResizeHandle onDrag={(delta) => adjustDiffPaneWidth(-delta, Math.floor(window.innerWidth * 0.8))} />
 
-				<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: "80vw" }} className="shrink-0">
-				<DiffPane
-					session={currentSession}
-					inspector={currentInspector}
-					diff={review.currentDiff}
-					revisions={review.revisions}
-					activeRevisionNumber={review.activeRevisionNumber}
-					selectedRevisionNumber={review.selectedRevisionNumber}
-					diffMode={review.diffMode}
-					defaultView={settings?.defaultDiffView ?? "split"}
-					diffStale={review.diffStale}
-					onSelectRevision={(n) => review.setSelectedRevision(n)}
-					onSetDiffMode={(mode) => review.setDiffMode(mode)}
-					onCreateThread={(anchor, body) => review.createThread(anchor, body)}
-					onReplyToThread={(threadId, body) => review.replyToThread(threadId, body)}
-					onResolveThread={(threadId, resolution) => review.resolveThread(threadId, resolution)}
-					onReopenThread={(threadId) => review.reopenThread(threadId)}
-					onPublishComments={() => review.publishComments()}
-					onStartNextRevision={() => review.startNextRevision()}
-					onApprove={() => review.approve()}
-					onApplyRevision={() => review.applyRevision()}
-					onApplyAndMerge={(commitMessage) => review.applyAndMerge(commitMessage)}
-					onCreateManualCheckpoint={() =>
-						currentSession
-							? createManualCheckpoint(currentSession.id).then(() => undefined)
-							: Promise.resolve()
-					}
-					onRepairWorktree={() =>
-						currentSession
-							? repairWorktree(currentSession.id)
-							: Promise.resolve()
-					}
-				/>
-				</div>
+					<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: "80vw" }} className="shrink-0">
+					<DiffPane
+						session={currentSession}
+						inspector={currentInspector}
+						diff={review.currentDiff}
+						revisions={review.revisions}
+						activeRevisionNumber={review.activeRevisionNumber}
+						selectedRevisionNumber={review.selectedRevisionNumber}
+						diffMode={review.diffMode}
+						defaultView={settings?.defaultDiffView ?? "split"}
+						diffStale={review.diffStale}
+						onSelectRevision={(n) => review.setSelectedRevision(n)}
+						onSetDiffMode={(mode) => review.setDiffMode(mode)}
+						onCreateThread={(anchor, body) => review.createThread(anchor, body)}
+						onReplyToThread={(threadId, body) => review.replyToThread(threadId, body)}
+						onResolveThread={(threadId, resolution) => review.resolveThread(threadId, resolution)}
+						onReopenThread={(threadId) => review.reopenThread(threadId)}
+						onPublishComments={() => review.publishComments()}
+						onStartNextRevision={() => review.startNextRevision()}
+						onApprove={() => review.approve()}
+						onApplyRevision={() => review.applyRevision()}
+						onApplyAndMerge={(commitMessage) => review.applyAndMerge(commitMessage)}
+						onCreateManualCheckpoint={() =>
+							currentSession
+								? createManualCheckpoint(currentSession.id).then(() => undefined)
+								: Promise.resolve()
+						}
+						onRepairWorktree={() =>
+							currentSession
+								? repairWorktree(currentSession.id)
+								: Promise.resolve()
+						}
+					/>
+					</div>
+					</>
+				)}
 			</div>
 
 			<TerminalDrawer
