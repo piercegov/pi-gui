@@ -282,8 +282,8 @@ export function ConversationPane(props: {
 		return (
 			<section className="flex h-full items-center justify-center bg-surface-1">
 				<div className="text-center">
-					<div className="text-sm text-white/25">No session open</div>
-					<p className="mt-2 text-sm text-white/40">
+					<div className="text-xs text-white/25">No session open</div>
+					<p className="mt-2 text-xs text-white/40">
 						Select a thread or create a new one to start.
 					</p>
 				</div>
@@ -367,7 +367,7 @@ export function ConversationPane(props: {
 											</div>
 										)}
 										{block.textMarkdown && (
-											<div className="text-sm leading-relaxed">
+											<div className="text-xs leading-relaxed">
 												<MarkdownRenderer markdown={block.textMarkdown} />
 											</div>
 										)}
@@ -396,7 +396,7 @@ export function ConversationPane(props: {
 											})}
 										</span>
 									</div>
-									<div className="text-sm leading-relaxed">
+									<div className="text-xs leading-relaxed">
 										<MarkdownRenderer markdown={entry.markdown} />
 									</div>
 								</article>
@@ -420,7 +420,7 @@ export function ConversationPane(props: {
 						}}
 						rows={3}
 						placeholder="Ask for follow-up changes..."
-						className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-sm text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
+						className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-xs text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
 					/>
 					<div className="mt-2 flex items-center justify-between">
 						<span className="text-2xs text-white/20">

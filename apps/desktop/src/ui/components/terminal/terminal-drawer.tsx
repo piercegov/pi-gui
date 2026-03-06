@@ -111,7 +111,7 @@ export function TerminalDrawer(props: {
 						{props.supported ? (
 							<div ref={terminalRef} data-allow-context-menu className="h-full w-full" />
 						) : (
-							<div className="flex h-full items-center justify-center text-sm text-white/30">
+							<div className="flex h-full items-center justify-center text-xs text-white/30">
 								Embedded terminal is unavailable on this platform.
 							</div>
 						)}

@@ -44,7 +44,7 @@ export function Sidebar(props: {
 			<div className="flex items-center justify-between border-b border-surface-border px-3 py-2.5">
 				{selectedProject ? (
 					<DropdownMenu.Root>
-						<DropdownMenu.Trigger className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium text-white/90 transition hover:bg-white/5">
+						<DropdownMenu.Trigger className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs font-medium text-white/90 transition hover:bg-white/5">
 							<FolderOpen className="h-3.5 w-3.5 text-white/40" />
 							{selectedProject.name}
 						</DropdownMenu.Trigger>
@@ -57,7 +57,7 @@ export function Sidebar(props: {
 								{props.projects.map((project) => (
 									<DropdownMenu.Item
 										key={project.id}
-										className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/80 outline-none hover:bg-white/8"
+										className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/80 outline-none hover:bg-white/8"
 										onSelect={() => props.onSelectProject(project.id)}
 									>
 										<FolderOpen className="h-3.5 w-3.5 text-white/40" />
@@ -69,7 +69,7 @@ export function Sidebar(props: {
 								))}
 								<DropdownMenu.Separator className="my-1 h-px bg-surface-border" />
 								<DropdownMenu.Item
-									className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/60 outline-none hover:bg-white/8"
+									className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/60 outline-none hover:bg-white/8"
 									onSelect={props.onAddProject}
 								>
 									<Plus className="h-3.5 w-3.5" />
@@ -81,7 +81,7 @@ export function Sidebar(props: {
 				) : (
 					<button
 						onClick={props.onAddProject}
-						className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-white/60 transition hover:bg-white/5"
+						className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-white/60 transition hover:bg-white/5"
 					>
 						<Plus className="h-3.5 w-3.5" />
 						Add project
@@ -156,7 +156,7 @@ export function Sidebar(props: {
 								>
 									<div className="flex items-center gap-2">
 										<span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${sessionStatusColor(session.status)}`} />
-										<span className={`truncate text-sm ${session.status === "merged" ? "line-through text-white/40" : selected ? "text-white" : "text-white/75"}`}>
+										<span className={`truncate text-xs ${session.status === "merged" ? "line-through text-white/40" : selected ? "text-white" : "text-white/75"}`}>
 											{session.displayName}
 										</span>
 										<span className="ml-auto shrink-0 text-2xs text-white/25">
@@ -190,14 +190,14 @@ export function Sidebar(props: {
 												align="end"
 											>
 												<DropdownMenu.Item
-													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/70 outline-none hover:bg-white/8"
+													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/70 outline-none hover:bg-white/8"
 													onSelect={() => props.onRenameSession(session)}
 												>
 													<Pencil className="h-3.5 w-3.5" />
 													Rename
 												</DropdownMenu.Item>
 												<DropdownMenu.Item
-													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/70 outline-none hover:bg-white/8"
+													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/70 outline-none hover:bg-white/8"
 													onSelect={() => props.onArchiveSession(session, !session.archivedAt)}
 												>
 													{session.archivedAt ? (

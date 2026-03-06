@@ -40,7 +40,7 @@ function SettingField(props: {
 }) {
 	return (
 		<div className="border-b border-surface-border py-3 last:border-b-0">
-			<div className="text-sm text-white/80">{props.label}</div>
+			<div className="text-xs text-white/80">{props.label}</div>
 			<div className="mt-0.5 text-2xs text-white/35">{props.description}</div>
 			<div className="mt-2">{props.children}</div>
 		</div>
@@ -60,7 +60,7 @@ export function SettingsDialog(props: {
 				<Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
 				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[80vh] w-[680px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden border border-surface-border bg-surface-1 shadow-2xl">
 					<div className="flex items-center justify-between border-b border-surface-border px-5 py-3">
-						<Dialog.Title className="text-sm font-semibold text-white/90">
+						<Dialog.Title className="text-xs font-semibold text-white/90">
 							Settings
 						</Dialog.Title>
 						<Dialog.Close className="rounded-md p-1 text-white/30 transition hover:bg-white/5 hover:text-white/50">
@@ -93,7 +93,7 @@ export function SettingsDialog(props: {
 												defaultSessionMode: event.target.value as AppSettings["defaultSessionMode"],
 											})
 										}
-										className="border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+										className="border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 									>
 										<option value="worktree">Worktree</option>
 										<option value="local">Local</option>
@@ -108,7 +108,7 @@ export function SettingsDialog(props: {
 										onChange={(event) =>
 											void props.onUpdate({ defaultEditor: event.target.value })
 										}
-										className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+										className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 									/>
 								</SettingField>
 							</Tabs.Content>
@@ -132,7 +132,7 @@ export function SettingsDialog(props: {
 											onChange={(event) =>
 												void props.onUpdate({ accentColor: event.target.value })
 											}
-											className="w-28 border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm uppercase text-white/70 outline-none"
+											className="w-28 border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs uppercase text-white/70 outline-none"
 										/>
 									</div>
 								</SettingField>
@@ -172,7 +172,7 @@ export function SettingsDialog(props: {
 												defaultDiffView: event.target.value as AppSettings["defaultDiffView"],
 											})
 										}
-										className="border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+										className="border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 									>
 										<option value="split">Split</option>
 										<option value="unified">Unified</option>
@@ -187,26 +187,26 @@ export function SettingsDialog(props: {
 											<div className="mb-1 text-2xs text-white/30">Markdown</div>
 											<input
 												type="number"
-												value={props.settings?.markdownFontSize ?? 15}
+												value={props.settings?.markdownFontSize ?? 13}
 												onChange={(event) =>
 													void props.onUpdate({
 														markdownFontSize: Number(event.target.value),
 													})
 												}
-												className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+												className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 											/>
 										</div>
 										<div>
 											<div className="mb-1 text-2xs text-white/30">Code / Diff</div>
 											<input
 												type="number"
-												value={props.settings?.codeFontSize ?? 14}
+												value={props.settings?.codeFontSize ?? 13}
 												onChange={(event) =>
 													void props.onUpdate({
 														codeFontSize: Number(event.target.value),
 													})
 												}
-												className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+												className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 											/>
 										</div>
 									</div>
@@ -232,7 +232,7 @@ export function SettingsDialog(props: {
 									label="Write freeze"
 									description="Mutating tools are always blocked during review discussion."
 								>
-									<span className="text-sm text-white/40">
+									<span className="text-xs text-white/40">
 										Writes are automatically frozen during discussion
 									</span>
 								</SettingField>
@@ -250,7 +250,7 @@ export function SettingsDialog(props: {
 												terminalShell: event.target.value,
 											})
 										}
-										className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
+										className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none"
 									/>
 								</SettingField>
 							</Tabs.Content>
@@ -260,7 +260,7 @@ export function SettingsDialog(props: {
 									label="Archive visibility"
 									description="Show archived sessions in the sidebar."
 								>
-									<label className="inline-flex items-center gap-2 text-sm text-white/60">
+									<label className="inline-flex items-center gap-2 text-xs text-white/60">
 										<input
 											type="checkbox"
 											checked={props.settings?.showArchived ?? false}

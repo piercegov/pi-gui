@@ -189,7 +189,7 @@ function InlineThread(props: {
 					onChange={(event) => setReplyBody(event.target.value)}
 					rows={2}
 					placeholder="Reply..."
-					className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-sm text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+					className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
 				/>
 				<div className="mt-1.5 flex justify-end">
 					<button
@@ -465,7 +465,7 @@ export function DiffPane(props: {
 				<div className="flex flex-1 items-center justify-center">
 					<div className="text-center text-white/30">
 						<GitCompare className="mx-auto mb-2 h-8 w-8 text-white/15" />
-						<p className="text-sm">
+						<p className="text-xs">
 							Open a session with changes to view diffs.
 						</p>
 					</div>
@@ -814,7 +814,7 @@ export function DiffPane(props: {
 																		}
 																		rows={3}
 																		placeholder="Leave a review comment..."
-																		className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-sm text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+																		className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
 																	/>
 																	<div className="mt-2 flex justify-end gap-1.5">
 																		<button

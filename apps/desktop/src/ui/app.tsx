@@ -90,8 +90,8 @@ export function App() {
 
 	useEffect(() => {
 		const root = document.documentElement;
-		root.style.setProperty("--markdown-font-size", `${settings?.markdownFontSize ?? 15}px`);
-		root.style.setProperty("--code-font-size", `${settings?.codeFontSize ?? 14}px`);
+		root.style.setProperty("--markdown-font-size", `${settings?.markdownFontSize ?? 13}px`);
+		root.style.setProperty("--code-font-size", `${settings?.codeFontSize ?? 13}px`);
 		const hex = settings?.accentColor ?? "#05A0D1";
 		const r = parseInt(hex.slice(1, 3), 16);
 		const g = parseInt(hex.slice(3, 5), 16);

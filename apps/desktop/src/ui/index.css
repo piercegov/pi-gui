@@ -24,8 +24,8 @@
 	--diff-del: rgba(244, 67, 54, 0.1);
 	--diff-add-border: rgba(61, 220, 132, 0.25);
 	--diff-del-border: rgba(244, 67, 54, 0.25);
-	--markdown-font-size: 15px;
-	--code-font-size: 14px;
+	--markdown-font-size: 13px;
+	--code-font-size: 13px;
 	color-scheme: dark;
 }
 
@@ -39,8 +39,7 @@ body {
 	margin: 0;
 	background: var(--surface-0);
 	color: var(--ink-strong);
-	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
-		"Segoe UI", sans-serif;
+	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 	font-size: 13px;
 	-webkit-font-smoothing: antialiased;
 }
