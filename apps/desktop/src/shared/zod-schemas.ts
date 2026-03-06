@@ -237,6 +237,7 @@ export const conversationEntrySchema = z.object({
 	markdown: z.string(),
 	status: z.enum(["streaming", "done", "error"]),
 	toolName: z.string().optional(),
+	toolInput: z.record(z.string(), z.unknown()).optional(),
 	attachments: z.array(transcriptAttachmentSchema).optional(),
 	metadata: z.record(z.string(), z.unknown()),
 });

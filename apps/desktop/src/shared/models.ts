@@ -225,6 +225,7 @@ export interface ConversationEntryView {
 	markdown: string;
 	status: "streaming" | "done" | "error";
 	toolName?: string;
+	toolInput?: Record<string, unknown>;
 	attachments?: TranscriptAttachmentView[];
 	metadata: Record<string, unknown>;
 }

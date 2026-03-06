@@ -124,10 +124,23 @@ function ToolInvocationCard(props: { entry: ConversationEntryView }) {
 				/>
 			</button>
 			{open && (
-				<div className="border-t border-surface-border bg-surface-1 px-4 py-3">
-					<div className="text-xs leading-relaxed text-white/60">
-						<MarkdownRenderer markdown={entry.markdown} />
-					</div>
+				<div className="border-t border-surface-border bg-surface-1 px-4 py-3 space-y-3">
+					{entry.toolInput && Object.keys(entry.toolInput).length > 0 && (
+						<div>
+							<div className="mb-1 text-2xs font-medium uppercase tracking-wider text-white/25">Input</div>
+							<pre className="overflow-x-auto border border-surface-border bg-black/20 px-3 py-2 text-xs leading-relaxed text-white/50 mono">
+								{JSON.stringify(entry.toolInput, null, 2)}
+							</pre>
+						</div>
+					)}
+					{entry.markdown.trim() && (
+						<div>
+							<div className="mb-1 text-2xs font-medium uppercase tracking-wider text-white/25">Output</div>
+							<div className="text-xs leading-relaxed text-white/60">
+								<MarkdownRenderer markdown={entry.markdown} />
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

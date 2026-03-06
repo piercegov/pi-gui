@@ -92,6 +92,7 @@ export class PiRuntimeManager {
 		sessionId: string,
 		message: AgentSession["messages"][number],
 		index: number,
+		toolCallArgs?: Map<string, Record<string, unknown>>,
 	): ConversationEntryView | null {
 		if ("role" in message) {
 			if (message.role === "user") {
@@ -145,6 +146,7 @@ export class PiRuntimeManager {
 						.join("\n"),
 					status: message.isError ? "error" : "done",
 					toolName: message.toolName,
+					toolInput: toolCallArgs?.get(message.toolCallId),
 					metadata: {},
 				};
 			}
@@ -187,9 +189,20 @@ export class PiRuntimeManager {
 	getConversation(sessionId: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) return [];
+		// Build toolCallId → arguments map from assistant messages
+		const toolCallArgs = new Map<string, Record<string, unknown>>();
+		for (const message of runtime.session.messages) {
+			if ("role" in message && message.role === "assistant") {
+				for (const part of message.content) {
+					if (part.type === "toolCall") {
+						toolCallArgs.set(part.id, part.arguments);
+					}
+				}
+			}
+		}
 		return runtime.session.messages
 			.map((message, index) =>
-				this.mapConversationMessage(sessionId, message, index),
+				this.mapConversationMessage(sessionId, message, index, toolCallArgs),
 			)
 			.filter((entry): entry is ConversationEntryView => Boolean(entry));
 	}
