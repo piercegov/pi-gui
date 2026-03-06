@@ -1,7 +1,138 @@
 import { useState } from "react";
-import { Send, Square, CornerDownRight, Zap } from "lucide-react";
+import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import type { ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
 import { MarkdownRenderer } from "@ui/lib/markdown";
+
+/** Returns true if an assistant entry contains only tool-call references (no real text). */
+function isToolCallOnly(entry: ConversationEntryView): boolean {
+	if (entry.kind !== "assistant") return false;
+	const trimmed = entry.markdown.trim();
+	if (!trimmed) return true;
+	return trimmed.split("\n").every((line) => /^-\s*`[^`]+`\s*$/.test(line.trim()));
+}
+
+/** Strip tool-call list lines from assistant markdown, returning only real text. */
+function stripToolCallLines(markdown: string): string {
+	return markdown
+		.split("\n")
+		.filter((line) => !/^-\s*`[^`]+`\s*$/.test(line.trim()))
+		.join("\n")
+		.trim();
+}
+
+type AssistantTurn = {
+	type: "assistant_turn";
+	/** First assistant entry in the group (used for id/timestamp). */
+	lead: ConversationEntryView;
+	/** Real text from all assistant entries in this turn. */
+	textMarkdown: string;
+	/** Tool result entries in this turn. */
+	tools: ConversationEntryView[];
+};
+
+type RenderBlock =
+	| { type: "entry"; entry: ConversationEntryView }
+	| AssistantTurn;
+
+/**
+ * Groups consecutive assistant + tool entries into unified assistant turns.
+ * An assistant turn starts at an assistant entry and absorbs all following
+ * tool results and tool-call-only assistant entries.
+ */
+function groupEntries(entries: ConversationEntryView[]): RenderBlock[] {
+	const blocks: RenderBlock[] = [];
+	let i = 0;
+	while (i < entries.length) {
+		const entry = entries[i];
+		if (entry.kind === "assistant") {
+			const lead = entry;
+			const textParts: string[] = [];
+			const realText = stripToolCallLines(entry.markdown);
+			if (realText) textParts.push(realText);
+			const tools: ConversationEntryView[] = [];
+			i++;
+			// Absorb following tool results and tool-call-only assistant entries
+			while (i < entries.length) {
+				const next = entries[i];
+				if (next.kind === "tool") {
+					tools.push(next);
+					i++;
+				} else if (isToolCallOnly(next)) {
+					// Skip tool-call-only assistant entries (tool names already shown on cards)
+					i++;
+				} else if (next.kind === "assistant") {
+					// Another assistant entry with real text — include text and continue absorbing
+					const text = stripToolCallLines(next.markdown);
+					if (text) textParts.push(text);
+					i++;
+				} else {
+					break;
+				}
+			}
+			blocks.push({
+				type: "assistant_turn",
+				lead,
+				textMarkdown: textParts.join("\n\n"),
+				tools,
+			});
+		} else {
+			blocks.push({ type: "entry", entry });
+			i++;
+		}
+	}
+	return blocks;
+}
+
+function ToolInvocationCard(props: { entry: ConversationEntryView }) {
+	const [open, setOpen] = useState(false);
+	const { entry } = props;
+	const isError = entry.status === "error";
+	const isStreaming = entry.status === "streaming";
+	const isDone = entry.status === "done" && !isError;
+
+	return (
+		<div className="border border-surface-border bg-surface-0 overflow-hidden">
+			<button
+				type="button"
+				onClick={() => setOpen((prev) => !prev)}
+				className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-white/[0.03]"
+			>
+				<Wrench className="h-3.5 w-3.5 shrink-0 text-white/30" />
+				<span className="mono text-xs font-medium text-white/70">
+					{entry.toolName ?? "tool"}
+				</span>
+				{isStreaming && (
+					<span className="flex items-center gap-1 rounded-full bg-state-running/15 px-2 py-0.5 text-2xs text-state-running">
+						<Loader2 className="h-3 w-3 animate-spin" />
+						Running
+					</span>
+				)}
+				{isDone && (
+					<span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-2xs text-green-400/80">
+						<CheckCircle2 className="h-3 w-3" />
+						Done
+					</span>
+				)}
+				{isError && (
+					<span className="flex items-center gap-1 rounded-full bg-state-error/10 px-2 py-0.5 text-2xs text-state-error">
+						<AlertCircle className="h-3 w-3" />
+						Error
+					</span>
+				)}
+				<ChevronRight
+					className={`ml-auto h-3.5 w-3.5 shrink-0 text-white/20 transition-transform ${open ? "rotate-90" : ""}`}
+				/>
+			</button>
+			{open && (
+				<div className="border-t border-surface-border bg-surface-1 px-4 py-3">
+					<div className="text-xs leading-relaxed text-white/60">
+						<MarkdownRenderer markdown={entry.markdown} />
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
 
 function badge(session?: SessionSummary) {
 	if (!session) return [];
@@ -87,33 +218,67 @@ export function ConversationPane(props: {
 					</div>
 
 					<div className="space-y-1">
-						{props.entries.map((entry) => (
-							<article
-								key={entry.id}
-								className={`border-l-2 px-4 py-3 ${
-									entry.kind === "user"
-										? "border-accent/50 bg-accent-soft"
-										: entry.kind === "assistant"
-											? "border-transparent"
+						{groupEntries(props.entries).map((block) => {
+							if (block.type === "assistant_turn") {
+								return (
+									<article
+										key={block.lead.id}
+										className="border-l-2 border-transparent px-4 py-3"
+									>
+										<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
+											<span className="font-medium uppercase tracking-wider">
+												assistant
+											</span>
+											<span>
+												{new Date(block.lead.timestamp).toLocaleTimeString([], {
+													hour: "numeric",
+													minute: "2-digit",
+												})}
+											</span>
+										</div>
+										{block.tools.length > 0 && (
+											<div className="mb-3 flex flex-col gap-1.5">
+												{block.tools.map((tool) => (
+													<ToolInvocationCard key={tool.id} entry={tool} />
+												))}
+											</div>
+										)}
+										{block.textMarkdown && (
+											<div className="text-sm leading-relaxed">
+												<MarkdownRenderer markdown={block.textMarkdown} />
+											</div>
+										)}
+									</article>
+								);
+							}
+
+							const { entry } = block;
+							return (
+								<article
+									key={entry.id}
+									className={`border-l-2 px-4 py-3 ${
+										entry.kind === "user"
+											? "border-accent/50 bg-accent-soft"
 											: "border-white/5 bg-white/[0.02]"
-								}`}
-							>
-								<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
-									<span className="font-medium uppercase tracking-wider">
-										{entry.kind}
-									</span>
-									<span>
-										{new Date(entry.timestamp).toLocaleTimeString([], {
-											hour: "numeric",
-											minute: "2-digit",
-										})}
-									</span>
-								</div>
-								<div className="text-sm leading-relaxed">
-									<MarkdownRenderer markdown={entry.markdown} />
-								</div>
-							</article>
-						))}
+									}`}
+								>
+									<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
+										<span className="font-medium uppercase tracking-wider">
+											{entry.kind}
+										</span>
+										<span>
+											{new Date(entry.timestamp).toLocaleTimeString([], {
+												hour: "numeric",
+												minute: "2-digit",
+											})}
+										</span>
+									</div>
+									<div className="text-sm leading-relaxed">
+										<MarkdownRenderer markdown={entry.markdown} />
+									</div>
+								</article>
+							);
+						})}
 					</div>
 				</div>
 			</div>
