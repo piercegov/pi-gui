@@ -400,6 +400,7 @@ export class SessionService {
 		const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
 		if (!baseline?.gitTree) return undefined;
 		const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, baseline.gitTree);
+		if (!diff.patch.trim()) return undefined;
 		return this.checkpoints.storeDiffSnapshot({
 			sessionId,
 			scope: "session_changes",
