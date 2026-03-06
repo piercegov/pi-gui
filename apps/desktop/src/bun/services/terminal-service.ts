@@ -44,7 +44,7 @@ export class TerminalService {
 		});
 		const proc = Bun.spawn([params.shell], {
 			cwd: params.cwd,
-			env: process.env,
+			env: { ...process.env, TERM: "xterm-256color" },
 			terminal,
 		});
 		this.terminals.set(id, {

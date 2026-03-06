@@ -455,7 +455,6 @@ export function App() {
 			<TerminalDrawer
 				sessionId={currentSession?.id}
 				open={terminalOpen}
-				toolActivity={toolActivity}
 				supported={supportsEmbeddedTerminal}
 			/>
 
