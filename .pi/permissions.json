@@ -26,6 +26,11 @@
         "prefix": [
           "xargs"
         ]
+      },
+      {
+        "prefix": [
+          "bun"
+        ]
       }
     ],
     "deny": []

@@ -26,7 +26,7 @@
 		"@radix-ui/react-switch": "latest",
 		"@radix-ui/react-tabs": "latest",
 		"@radix-ui/react-tooltip": "latest",
-		"@tanstack/react-virtual": "^3.13.20",
+		"@tanstack/react-virtual": "^3.13.21",
 		"clsx": "^2.1.1",
 		"electrobun": "1.14.4",
 		"lucide-react": "^0.577.0",
@@ -45,15 +45,15 @@
 	},
 	"devDependencies": {
 		"@types/bun": "latest",
-		"@types/node": "^24.3.0",
-		"@types/react": "^18.3.12",
-		"@types/react-dom": "^18.3.1",
-		"@vitejs/plugin-react": "^4.3.4",
-		"autoprefixer": "^10.4.20",
-		"concurrently": "^9.1.0",
-		"postcss": "^8.4.49",
-		"tailwindcss": "^3.4.16",
-		"typescript": "^5.9.2",
-		"vite": "^6.0.3"
+		"@types/node": "^24.12.0",
+		"@types/react": "^18.3.28",
+		"@types/react-dom": "^18.3.7",
+		"@vitejs/plugin-react": "^4.7.0",
+		"autoprefixer": "^10.4.27",
+		"concurrently": "^9.2.1",
+		"postcss": "^8.5.8",
+		"tailwindcss": "^3.4.19",
+		"typescript": "^5.9.3",
+		"vite": "^6.4.1"
 	}
 }
