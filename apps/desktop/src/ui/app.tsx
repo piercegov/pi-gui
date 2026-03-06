@@ -88,6 +88,13 @@ export function App() {
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+	// Apply font size settings as CSS custom properties
+	useEffect(() => {
+		const root = document.documentElement;
+		root.style.setProperty("--markdown-font-size", `${settings?.markdownFontSize ?? 15}px`);
+		root.style.setProperty("--code-font-size", `${settings?.codeFontSize ?? 14}px`);
+	}, [settings?.markdownFontSize, settings?.codeFontSize]);
+
 	const sessions = useMemo(
 		() => (selectedProjectId ? sessionsByProject[selectedProjectId] ?? [] : []),
 		[selectedProjectId, sessionsByProject],

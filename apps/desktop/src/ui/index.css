@@ -24,6 +24,8 @@
 	--diff-del: rgba(244, 67, 54, 0.1);
 	--diff-add-border: rgba(61, 220, 132, 0.25);
 	--diff-del-border: rgba(244, 67, 54, 0.25);
+	--markdown-font-size: 15px;
+	--code-font-size: 14px;
 	color-scheme: dark;
 }
 
@@ -102,12 +104,12 @@ select {
 
 .markdown {
 	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
-	font-size: 0.85em;
+	font-size: var(--markdown-font-size);
 }
 
 .markdown code {
 	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
-	font-size: 0.9em;
+	font-size: var(--code-font-size);
 	background: rgba(255, 255, 255, 0.06);
 	padding: 0.15em 0.35em;
 	border-radius: 4px;
@@ -142,7 +144,7 @@ select {
 	--diff-gutter-insert-text-color: rgba(61, 220, 132, 0.7);
 	--diff-gutter-delete-text-color: rgba(244, 67, 54, 0.7);
 	--diff-omit-gutter-line-color: rgba(255, 255, 255, 0.15);
-	font-size: 12px;
+	font-size: var(--code-font-size);
 }
 
 .diff-shell table {

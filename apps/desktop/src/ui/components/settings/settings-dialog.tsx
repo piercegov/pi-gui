@@ -1,8 +1,37 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { X, CheckCircle2, AlertCircle } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { AppSettings } from "@shared/models";
+
+const CODE_FONTS = [
+	"JetBrains Mono",
+	"SF Mono",
+	"Menlo",
+	"Monaco",
+	"Consolas",
+] as const;
+
+function useActiveFont(): string | null {
+	const [active, setActive] = useState<string | null>(null);
+	useEffect(() => {
+		const check = () => {
+			for (const font of CODE_FONTS) {
+				if (document.fonts.check(`12px "${font}"`)) {
+					setActive(font);
+					return;
+				}
+			}
+			setActive("monospace");
+		};
+		if (document.fonts.status === "loaded") {
+			check();
+		} else {
+			void document.fonts.ready.then(check);
+		}
+	}, []);
+	return active;
+}
 
 function SettingField(props: {
 	label: string;
@@ -24,6 +53,7 @@ export function SettingsDialog(props: {
 	onOpenChange: (open: boolean) => void;
 	onUpdate: (patch: Partial<AppSettings>) => Promise<void>;
 }) {
+	const activeFont = useActiveFont();
 	return (
 		<Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
 			<Dialog.Portal>
@@ -110,7 +140,7 @@ export function SettingsDialog(props: {
 											<div className="mb-1 text-2xs text-white/30">Markdown</div>
 											<input
 												type="number"
-												value={props.settings?.markdownFontSize ?? 14}
+												value={props.settings?.markdownFontSize ?? 15}
 												onChange={(event) =>
 													void props.onUpdate({
 														markdownFontSize: Number(event.target.value),
@@ -120,10 +150,10 @@ export function SettingsDialog(props: {
 											/>
 										</div>
 										<div>
-											<div className="mb-1 text-2xs text-white/30">Code</div>
+											<div className="mb-1 text-2xs text-white/30">Code / Diff</div>
 											<input
 												type="number"
-												value={props.settings?.codeFontSize ?? 13}
+												value={props.settings?.codeFontSize ?? 14}
 												onChange={(event) =>
 													void props.onUpdate({
 														codeFontSize: Number(event.target.value),
@@ -132,6 +162,20 @@ export function SettingsDialog(props: {
 												className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-sm text-white/70 outline-none"
 											/>
 										</div>
+									</div>
+									<div className="mt-2 flex items-center gap-1.5">
+										{activeFont === "JetBrains Mono" ? (
+											<CheckCircle2 className="h-3 w-3 text-green-400/80" />
+										) : (
+											<AlertCircle className="h-3 w-3 text-state-review" />
+										)}
+										<span className="text-2xs text-white/40">
+											Active font:{" "}
+											<span className="mono text-white/60">{activeFont ?? "detecting..."}</span>
+											{activeFont && activeFont !== "JetBrains Mono" && (
+												<span className="text-white/30"> (JetBrains Mono not loaded)</span>
+											)}
+										</span>
 									</div>
 								</SettingField>
 							</Tabs.Content>
