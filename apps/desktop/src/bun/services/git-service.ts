@@ -312,6 +312,10 @@ export class GitService {
 		}
 	}
 
+	async restoreToTree(cwd: string, treeHash: string) {
+		await this.run(["git", "read-tree", "--reset", "-u", treeHash], { cwd });
+	}
+
 	getProjectNameFromPath(rootPath: string) {
 		return basename(rootPath);
 	}

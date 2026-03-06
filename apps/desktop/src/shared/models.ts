@@ -273,6 +273,7 @@ export interface SessionHydration {
 	session: SessionSummary;
 	conversation: ConversationEntryView[];
 	toolActivity: ToolActivityView[];
+	checkpoints: CheckpointSummaryView[];
 	reviewRounds: ReviewRoundView[];
 	activeReviewRoundId?: string;
 	diffScopes: DiffScopeSummary[];
@@ -316,6 +317,10 @@ export type SessionStreamEvent =
 	| {
 			type: "review_notice";
 			entry: ConversationEntryView;
+	  }
+	| {
+			type: "checkpoint_created";
+			checkpoint: CheckpointSummaryView;
 	  }
 	| {
 			type: "error";

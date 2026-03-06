@@ -69,7 +69,7 @@ export function App() {
 		upsertSummary,
 		currentHydration,
 	} = useSessionsStore();
-	const { entries, toolActivity, hydrate: hydrateConversation, applyEvent } =
+	const { entries, toolActivity, checkpoints, hydrate: hydrateConversation, applyEvent } =
 		useConversationStore();
 	const review = useReviewStore();
 	const settings = useSettingsStore((state) => state.settings);
@@ -345,6 +345,7 @@ export function App() {
 					session={currentSession}
 					entries={entries}
 					toolActivity={toolActivity}
+					checkpoints={checkpoints}
 					onSendPrompt={(text) =>
 						currentSession
 							? rpc.request.sendPrompt({ sessionId: currentSession.id, text })
@@ -363,6 +364,11 @@ export function App() {
 					onAbort={() =>
 						currentSession
 							? rpc.request.abortSession({ sessionId: currentSession.id })
+							: Promise.resolve()
+					}
+					onRestoreCheckpoint={(checkpointId) =>
+						currentSession
+							? rpc.request.restoreCheckpoint({ sessionId: currentSession.id, checkpointId })
 							: Promise.resolve()
 					}
 				/>

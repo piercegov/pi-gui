@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import type { ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
+import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2, AlertCircle, Loader2, Flag, RotateCcw } from "lucide-react";
+import type { CheckpointSummaryView, ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 
 /** Returns true if an assistant entry contains only tool-call references (no real text). */
@@ -30,16 +30,24 @@ type AssistantTurn = {
 	tools: ConversationEntryView[];
 };
 
+type CheckpointBlock = {
+	type: "checkpoint";
+	checkpoint: CheckpointSummaryView;
+};
+
 type RenderBlock =
 	| { type: "entry"; entry: ConversationEntryView }
-	| AssistantTurn;
+	| AssistantTurn
+	| CheckpointBlock;
 
 /**
- * Groups consecutive assistant + tool entries into unified assistant turns.
- * An assistant turn starts at an assistant entry and absorbs all following
- * tool results and tool-call-only assistant entries.
+ * Groups consecutive assistant + tool entries into unified assistant turns,
+ * then interleaves checkpoint markers by timestamp.
  */
-function groupEntries(entries: ConversationEntryView[]): RenderBlock[] {
+function groupEntries(
+	entries: ConversationEntryView[],
+	checkpoints: CheckpointSummaryView[],
+): RenderBlock[] {
 	const blocks: RenderBlock[] = [];
 	let i = 0;
 	while (i < entries.length) {
@@ -80,7 +88,90 @@ function groupEntries(entries: ConversationEntryView[]): RenderBlock[] {
 			i++;
 		}
 	}
-	return blocks;
+
+	// Only show post_turn, manual, and alignment checkpoints, sorted ascending by time
+	const visibleCheckpoints = checkpoints
+		.filter((cp) => cp.kind === "post_turn" || cp.kind === "manual" || cp.kind === "alignment")
+		.sort((a, b) => a.createdAt - b.createdAt);
+
+	if (visibleCheckpoints.length === 0) return blocks;
+
+	// Interleave checkpoints by timestamp, but collapse consecutive
+	// checkpoints (with no conversation block between them) into one,
+	// keeping only the latest in each run.
+	const merged: RenderBlock[] = [];
+	let cpIdx = 0;
+
+	for (const block of blocks) {
+		const blockTimestamp =
+			block.type === "assistant_turn"
+				? block.lead.timestamp
+				: block.type === "entry"
+					? block.entry.timestamp
+					: 0;
+
+		// Collect all checkpoints that occurred before this block
+		let lastCpBeforeBlock: CheckpointSummaryView | null = null;
+		while (cpIdx < visibleCheckpoints.length && visibleCheckpoints[cpIdx].createdAt <= blockTimestamp) {
+			lastCpBeforeBlock = visibleCheckpoints[cpIdx];
+			cpIdx++;
+		}
+		// Only emit the last checkpoint in a consecutive run
+		if (lastCpBeforeBlock) {
+			merged.push({ type: "checkpoint", checkpoint: lastCpBeforeBlock });
+		}
+		merged.push(block);
+	}
+
+	// Collapse any remaining checkpoints after all blocks into one
+	if (cpIdx < visibleCheckpoints.length) {
+		merged.push({ type: "checkpoint", checkpoint: visibleCheckpoints[visibleCheckpoints.length - 1] });
+	}
+
+	return merged;
+}
+
+function CheckpointBar(props: {
+	checkpoint: CheckpointSummaryView;
+	onRestore: (checkpointId: string) => void;
+}) {
+	const [hovered, setHovered] = useState(false);
+	const { checkpoint } = props;
+
+	const label =
+		checkpoint.kind === "alignment"
+			? "Alignment"
+			: checkpoint.kind === "manual"
+				? "Manual checkpoint"
+				: "Checkpoint";
+
+	return (
+		<div
+			className="group relative flex items-center gap-2 py-1.5"
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
+		>
+			<div className="flex items-center gap-1.5 text-white/20">
+				<Flag className="h-3 w-3" />
+				<span className="text-2xs">{label}</span>
+			</div>
+			<div className="flex-1 border-t border-dashed border-white/10" />
+			<div
+				className={`flex items-center gap-1 transition-opacity ${
+					hovered ? "opacity-100" : "opacity-0"
+				}`}
+			>
+				<button
+					type="button"
+					onClick={() => props.onRestore(checkpoint.id)}
+					className="flex items-center gap-1 border border-dashed border-white/15 px-2 py-0.5 text-2xs text-white/40 transition hover:border-white/30 hover:text-white/60"
+				>
+					<RotateCcw className="h-2.5 w-2.5" />
+					Restore
+				</button>
+			</div>
+		</div>
+	);
 }
 
 function ToolInvocationCard(props: { entry: ConversationEntryView }) {
@@ -161,10 +252,12 @@ export function ConversationPane(props: {
 	session?: SessionSummary;
 	entries: ConversationEntryView[];
 	toolActivity: ToolActivityView[];
+	checkpoints: CheckpointSummaryView[];
 	onSendPrompt: (text: string) => Promise<void>;
 	onSteer: (text: string) => Promise<void>;
 	onFollowUp: (text: string) => Promise<void>;
 	onAbort: () => Promise<void>;
+	onRestoreCheckpoint: (checkpointId: string) => Promise<void>;
 }) {
 	const [value, setValue] = useState("");
 	const busy = props.session?.status === "running";
@@ -176,6 +269,13 @@ export function ConversationPane(props: {
 		if (mode === "send") await props.onSendPrompt(text);
 		if (mode === "steer") await props.onSteer(text);
 		if (mode === "followup") await props.onFollowUp(text);
+	};
+
+	const handleRestore = (checkpointId: string) => {
+		if (!window.confirm("Restore working directory to this checkpoint? Current changes will be overwritten.")) {
+			return;
+		}
+		void props.onRestoreCheckpoint(checkpointId);
 	};
 
 	if (!props.session) {
@@ -231,7 +331,17 @@ export function ConversationPane(props: {
 					</div>
 
 					<div className="space-y-1">
-						{groupEntries(props.entries).map((block) => {
+						{groupEntries(props.entries, props.checkpoints).map((block) => {
+							if (block.type === "checkpoint") {
+								return (
+									<CheckpointBar
+										key={`cp-${block.checkpoint.id}`}
+										checkpoint={block.checkpoint}
+										onRestore={handleRestore}
+									/>
+								);
+							}
+
 							if (block.type === "assistant_turn") {
 								return (
 									<article

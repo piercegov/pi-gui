@@ -368,11 +368,22 @@ export class SessionService {
 		const currentDiff = initialDiffScope
 			? await this.buildDiff(sessionId, initialDiffScope)
 			: undefined;
+		const checkpointRecords = this.checkpoints.listCheckpoints(sessionId);
+		const checkpointViews: CheckpointSummaryView[] = checkpointRecords.map((cp) => ({
+			id: cp.id,
+			sessionId: cp.sessionId,
+			kind: cp.kind,
+			createdAt: cp.createdAt,
+			gitHead: cp.gitHead,
+			gitTree: cp.gitTree,
+			parentCheckpointId: cp.parentCheckpointId,
+		}));
 		return {
 			project,
 			session,
 			conversation: this.runtime.getConversation(sessionId),
 			toolActivity: this.runtime.getToolActivity(sessionId),
+			checkpoints: checkpointViews,
 			reviewRounds: this.review.listReviewRounds(sessionId),
 			activeReviewRoundId: this.review.getActiveReviewRoundId(sessionId),
 			diffScopes,
@@ -471,6 +482,34 @@ export class SessionService {
 	async followUpSession(sessionId: string, text: string) {
 		await this.ensureRuntime(sessionId);
 		await this.runtime.followUpSession(sessionId, text);
+	}
+
+	async restoreCheckpoint(sessionId: string, checkpointId: string) {
+		const row = this.getSessionRow(sessionId);
+		if (!row) throw new Error("Session not found.");
+		if (row.status === "running" || row.status === "applying") {
+			throw new Error("Cannot restore while the session is running.");
+		}
+		const checkpoint = this.checkpoints.getCheckpoint(checkpointId);
+		if (!checkpoint) throw new Error("Checkpoint not found.");
+		if (!checkpoint.gitTree) throw new Error("Checkpoint has no git tree to restore.");
+		await this.git.restoreToTree(row.cwd_path, checkpoint.gitTree);
+		const restored = await this.checkpoints.createCheckpoint({
+			sessionId,
+			cwd: row.cwd_path,
+			kind: "manual",
+			parentCheckpointId: checkpointId,
+		});
+		await this.refreshGitStatus(sessionId);
+		this.messenger.diffInvalidated({ sessionId, scope: "session_changes" });
+		this.messenger.toast({
+			id: crypto.randomUUID(),
+			title: "Checkpoint restored",
+			description: `Restored to ${checkpoint.kind} checkpoint from ${new Date(checkpoint.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`,
+			variant: "success",
+		});
+		await this.refreshAndPublishSession(sessionId);
+		return restored;
 	}
 
 	async createManualCheckpoint(sessionId: string) {
@@ -780,6 +819,20 @@ export class SessionService {
 				cwd: row.cwd_path,
 				kind: "pre_turn",
 			});
+			if (checkpoint) {
+				this.messenger.sessionEvent({
+					type: "checkpoint_created",
+					checkpoint: {
+						id: checkpoint.id,
+						sessionId: checkpoint.sessionId,
+						kind: checkpoint.kind,
+						createdAt: checkpoint.createdAt,
+						gitHead: checkpoint.gitHead,
+						gitTree: checkpoint.gitTree,
+						parentCheckpointId: checkpoint.parentCheckpointId,
+					},
+				});
+			}
 		}
 		this.db.run(
 			`
@@ -816,6 +869,20 @@ export class SessionService {
 				cwd: row.cwd_path,
 				kind: "post_turn",
 			});
+			if (checkpoint) {
+				this.messenger.sessionEvent({
+					type: "checkpoint_created",
+					checkpoint: {
+						id: checkpoint.id,
+						sessionId: checkpoint.sessionId,
+						kind: checkpoint.kind,
+						createdAt: checkpoint.createdAt,
+						gitHead: checkpoint.gitHead,
+						gitTree: checkpoint.gitTree,
+						parentCheckpointId: checkpoint.parentCheckpointId,
+					},
+				});
+			}
 		}
 		const turn = this.db.get<TurnRow>(
 			"select id, checkpoint_before_id, checkpoint_after_id from turns where session_id = ? and turn_index = ?",

@@ -327,6 +327,10 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 						sessionIdSchema.parse(params).sessionId,
 					),
 				),
+			restoreCheckpoint: async (params: unknown) => {
+				const parsed = z.object({ sessionId: z.string(), checkpointId: z.string() }).parse(params);
+				await sessions.restoreCheckpoint(parsed.sessionId, parsed.checkpointId);
+			},
 			getAppSettings: async () => appSettingsSchema.parse(settings.getAppSettings()),
 			updateAppSettings: async (params: unknown) =>
 				appSettingsSchema.parse(

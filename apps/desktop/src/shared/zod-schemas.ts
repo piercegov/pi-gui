@@ -285,6 +285,7 @@ export const sessionHydrationSchema = z.object({
 	session: sessionSummarySchema,
 	conversation: z.array(conversationEntrySchema),
 	toolActivity: z.array(toolActivitySchema),
+	checkpoints: z.array(checkpointSummarySchema),
 	reviewRounds: z.array(reviewRoundSchema),
 	activeReviewRoundId: z.string().optional(),
 	diffScopes: z.array(diffScopeSummarySchema),
@@ -328,6 +329,10 @@ export const sessionStreamEventSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("review_notice"),
 		entry: conversationEntrySchema,
+	}),
+	z.object({
+		type: z.literal("checkpoint_created"),
+		checkpoint: checkpointSummarySchema,
 	}),
 	z.object({
 		type: z.literal("error"),

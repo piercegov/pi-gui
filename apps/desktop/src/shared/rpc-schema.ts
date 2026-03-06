@@ -141,6 +141,10 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				params: { sessionId: string };
 				response: CheckpointSummaryView;
 			};
+			restoreCheckpoint: {
+				params: { sessionId: string; checkpointId: string };
+				response: void;
+			};
 			getAppSettings: {
 				params: undefined;
 				response: AppSettings;
