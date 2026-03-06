@@ -6,15 +6,14 @@ export type CheckpointKind =
 	| "post_turn"
 	| "review_start"
 	| "alignment"
+	| "revision"
 	| "manual";
 
 export type SessionStatus =
 	| "idle"
 	| "starting"
 	| "running"
-	| "waiting_for_review"
-	| "discussion_open"
-	| "aligned"
+	| "reviewing"
 	| "applying"
 	| "completed"
 	| "error"
@@ -22,29 +21,24 @@ export type SessionStatus =
 
 export type ReviewState =
 	| "none"
-	| "pending"
-	| "open"
-	| "awaiting_agent"
-	| "awaiting_user"
-	| "aligned"
-	| "applied"
-	| "obsolete";
+	| "reviewing"
+	| "discussing"
+	| "resolved"
+	| "approved";
 
-export type ReviewRoundState =
-	| "draft"
-	| "submitted"
-	| "awaiting_agent"
-	| "awaiting_user"
-	| "aligned"
-	| "applying"
-	| "applied"
-	| "obsolete";
+export type ThreadResolution = "no_changes" | "address_this";
+
+export type RevisionState =
+	| "active"
+	| "discussing"
+	| "resolved"
+	| "superseded"
+	| "approved";
+
+export type DiffMode = "incremental" | "cumulative";
 
 export type DiffScope =
 	| "session_changes"
-	| "last_turn_changes"
-	| "review_round_changes"
-	| "since_alignment"
 	| "branch_vs_base"
 	| "staged"
 	| "unstaged";
@@ -55,10 +49,8 @@ export type ThreadStatus =
 	| "open"
 	| "agent_replied"
 	| "needs_user"
-	| "aligned"
 	| "resolved"
-	| "outdated"
-	| "applied";
+	| "outdated";
 
 export type CommentAuthorType = "user" | "agent" | "system";
 
@@ -163,6 +155,7 @@ export interface CommentThreadView {
 	filePath: string;
 	anchor: CommentAnchor;
 	status: ThreadStatus;
+	resolution?: ThreadResolution;
 	createdAt: number;
 	updatedAt: number;
 	resolvedAt?: number;
@@ -171,28 +164,21 @@ export interface CommentThreadView {
 	messages: CommentMessageView[];
 }
 
-export interface ReviewRoundView {
+export interface RevisionView {
 	id: string;
 	sessionId: string;
-	seq: number;
-	state: ReviewRoundState;
+	revisionNumber: number;
+	state: RevisionState;
 	startedAt: number;
-	submittedAt?: number;
-	alignedAt?: number;
-	appliedAt?: number;
-	freezeWrites: boolean;
+	checkpointId?: string;
+	baselineCheckpointId?: string;
+	approvedAt?: number;
 	summaryMarkdown?: string;
+	addressThisCount: number;
+	noChangesCount: number;
 	unresolvedCount: number;
 	threads: CommentThreadView[];
 	metadata: Record<string, unknown>;
-}
-
-export interface DiffScopeSummary {
-	scope: DiffScope;
-	label: string;
-	description: string;
-	available: boolean;
-	reasonUnavailable?: string;
 }
 
 export interface DiffSnapshotView {
@@ -209,6 +195,8 @@ export interface DiffSnapshotView {
 	stats: DiffStats;
 	files: DiffFileStat[];
 	createdAt: number;
+	revisionNumber?: number;
+	diffMode?: DiffMode;
 }
 
 export interface TranscriptAttachmentView {
@@ -257,7 +245,6 @@ export interface PiConfigSummary {
 
 export interface AppSettings {
 	defaultDiffView: DiffViewMode;
-	alwaysFreezeWritesDuringReview: boolean;
 	defaultSessionMode: SessionMode;
 	defaultEditor: string;
 	terminalShell: string;
@@ -274,9 +261,8 @@ export interface SessionHydration {
 	conversation: ConversationEntryView[];
 	toolActivity: ToolActivityView[];
 	checkpoints: CheckpointSummaryView[];
-	reviewRounds: ReviewRoundView[];
-	activeReviewRoundId?: string;
-	diffScopes: DiffScopeSummary[];
+	revisions: RevisionView[];
+	activeRevisionNumber?: number;
 	currentDiff?: DiffSnapshotView;
 	appSettings: AppSettings;
 	supportsEmbeddedTerminal: boolean;

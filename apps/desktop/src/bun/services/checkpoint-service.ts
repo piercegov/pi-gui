@@ -11,6 +11,7 @@ export type CheckpointKind =
 	| "post_turn"
 	| "review_start"
 	| "alignment"
+	| "revision"
 	| "manual";
 
 type CheckpointRow = {

@@ -55,9 +55,7 @@ create table if not exists turns (
 create table if not exists checkpoints (
   id text primary key,
   session_id text not null references sessions(id) on delete cascade,
-  kind text not null check (kind in (
-    'baseline','pre_turn','post_turn','review_start','alignment','manual'
-  )),
+  kind text not null,
   turn_id text references turns(id) on delete set null,
   git_head text,
   git_tree text,
@@ -93,6 +91,9 @@ create table if not exists review_rounds (
   freeze_writes integer not null default 1,
   summary_markdown text,
   outcome_message_entry_id text,
+  checkpoint_id text,
+  baseline_checkpoint_id text,
+  approved_at integer,
   metadata_json text not null default '{}',
   unique(session_id, seq)
 );
@@ -104,6 +105,7 @@ create table if not exists comment_threads (
   file_path text not null,
   anchor_json text not null,
   status text not null,
+  resolution text,
   created_at integer not null,
   updated_at integer not null,
   resolved_at integer,
@@ -135,6 +137,88 @@ export class AppDb {
 		ensureAppPaths();
 		this.sqlite = new Database(appPaths.dbPath, { create: true });
 		this.sqlite.exec(SCHEMA_SQL);
+		this.runMigrations();
+	}
+
+	private runMigrations() {
+		const currentVersion = this.getSchemaVersion();
+
+		// Migration: add columns that might be missing from old schema
+		if (currentVersion < 1) {
+			// Add new columns safely (they exist in SCHEMA_SQL for fresh installs)
+			this.addColumnIfMissing("review_rounds", "checkpoint_id", "TEXT");
+			this.addColumnIfMissing("review_rounds", "baseline_checkpoint_id", "TEXT");
+			this.addColumnIfMissing("review_rounds", "approved_at", "INTEGER");
+			this.addColumnIfMissing("comment_threads", "resolution", "TEXT");
+
+			// Migrate old review_rounds state values to new revision states
+			this.sqlite.exec(`
+				UPDATE review_rounds SET state = 'discussing'
+				WHERE state IN ('draft', 'submitted', 'awaiting_agent', 'awaiting_user');
+
+				UPDATE review_rounds SET state = 'approved'
+				WHERE state IN ('aligned', 'applying', 'applied');
+
+				UPDATE review_rounds SET state = 'superseded'
+				WHERE state = 'obsolete';
+			`);
+
+			// Migrate old session status values
+			this.sqlite.exec(`
+				UPDATE sessions SET status = 'reviewing'
+				WHERE status IN ('waiting_for_review', 'discussion_open', 'aligned');
+
+				UPDATE sessions SET review_state = 'reviewing'
+				WHERE review_state IN ('pending', 'open');
+
+				UPDATE sessions SET review_state = 'discussing'
+				WHERE review_state IN ('awaiting_agent', 'awaiting_user');
+
+				UPDATE sessions SET review_state = 'approved'
+				WHERE review_state IN ('aligned', 'applied');
+
+				UPDATE sessions SET review_state = 'none'
+				WHERE review_state = 'obsolete';
+			`);
+
+			// Migrate old thread statuses
+			this.sqlite.exec(`
+				UPDATE comment_threads SET status = 'resolved'
+				WHERE status IN ('aligned', 'applied');
+			`);
+
+			this.setSchemaVersion(1);
+		}
+	}
+
+	private getSchemaVersion(): number {
+		const row = this.get<{ value_json: string }>(
+			"SELECT value_json FROM ui_preferences WHERE key = 'schema_version'",
+		);
+		if (!row) return 0;
+		try {
+			return JSON.parse(row.value_json) as number;
+		} catch {
+			return 0;
+		}
+	}
+
+	private setSchemaVersion(version: number) {
+		this.run(
+			`INSERT INTO ui_preferences (key, value_json, updated_at)
+			 VALUES ('schema_version', ?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+			JSON.stringify(version),
+			Date.now(),
+		);
+	}
+
+	private addColumnIfMissing(table: string, column: string, type: string) {
+		try {
+			this.sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+		} catch {
+			// Column already exists
+		}
 	}
 
 	all<T>(sql: string, ...params: SQLQueryBindings[]) {

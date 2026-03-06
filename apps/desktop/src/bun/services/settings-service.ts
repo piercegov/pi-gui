@@ -5,7 +5,6 @@ const SETTINGS_KEY = "app-settings";
 
 export const defaultAppSettings: AppSettings = {
 	defaultDiffView: "split",
-	alwaysFreezeWritesDuringReview: true,
 	defaultSessionMode: "worktree",
 	defaultEditor: "code",
 	terminalShell: process.env.SHELL ?? "/bin/zsh",

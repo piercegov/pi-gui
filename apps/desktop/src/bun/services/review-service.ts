@@ -3,16 +3,18 @@ import type {
 	CommentAnchor,
 	CommentMessageView,
 	CommentThreadView,
+	DiffMode,
 	DiffSnapshotView,
 	ReviewRoundPayload,
-	ReviewRoundView,
+	RevisionView,
 	ReviewState,
 	ReviewReplyPayload,
+	ThreadResolution,
 	ThreadStatus,
 } from "../../shared/models";
-import { SettingsService } from "./settings-service";
 import { AppDb } from "./db";
 import { CheckpointService } from "./checkpoint-service";
+import { GitService } from "./git-service";
 import type { HostMessenger } from "./host-messenger";
 
 type ReviewRoundRow = {
@@ -26,6 +28,9 @@ type ReviewRoundRow = {
 	applied_at: number | null;
 	freeze_writes: number;
 	summary_markdown: string | null;
+	checkpoint_id: string | null;
+	baseline_checkpoint_id: string | null;
+	approved_at: number | null;
 	metadata_json: string;
 };
 
@@ -36,6 +41,7 @@ type ThreadRow = {
 	file_path: string;
 	anchor_json: string;
 	status: ThreadStatus;
+	resolution: string | null;
 	created_at: number;
 	updated_at: number;
 	resolved_at: number | null;
@@ -54,9 +60,9 @@ type MessageRow = {
 };
 
 type RuntimeReviewBridge = {
-	dispatchReviewRound(sessionId: string, roundId: string): Promise<void>;
+	dispatchDiscussion(sessionId: string, roundId: string): Promise<void>;
 	dispatchThreadReply(sessionId: string, roundId: string): Promise<void>;
-	applyAlignedRound(reviewRoundId: string): Promise<void>;
+	dispatchAddressThis(sessionId: string, roundId: string, prompt: string): Promise<void>;
 };
 
 export class ReviewService {
@@ -65,8 +71,8 @@ export class ReviewService {
 
 	constructor(
 		private readonly db: AppDb,
-		private readonly settings: SettingsService,
 		private readonly checkpoints: CheckpointService,
+		private readonly git: GitService,
 		private readonly messenger: HostMessenger,
 	) {}
 
@@ -85,15 +91,9 @@ export class ReviewService {
 	}
 
 	buildReviewMarkdown(reviewRoundId: string) {
-		const round = this.getReviewRound(reviewRoundId);
+		const round = this.getRevision(reviewRoundId);
 		if (!round) return "";
 		return this.buildRoundSummaryMarkdown(round);
-	}
-
-	buildAlignedOutcome(reviewRoundId: string) {
-		const round = this.getReviewRound(reviewRoundId);
-		if (!round) return "";
-		return this.buildAlignedOutcomeMarkdown(round);
 	}
 
 	getSessionIdByReviewRound(reviewRoundId: string) {
@@ -134,6 +134,7 @@ export class ReviewService {
 			filePath: row.file_path,
 			anchor: JSON.parse(row.anchor_json) as CommentAnchor,
 			status: row.status,
+			resolution: (row.resolution as ThreadResolution) ?? undefined,
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			resolvedAt: row.resolved_at ?? undefined,
@@ -152,51 +153,77 @@ export class ReviewService {
 			.map((row) => this.mapThread(row));
 	}
 
-	private mapRound(row: ReviewRoundRow): ReviewRoundView {
+	private mapRevision(row: ReviewRoundRow): RevisionView {
 		const threads = this.getThreads(row.id);
 		const unresolvedCount = threads.filter((thread) =>
-			["open", "agent_replied", "needs_user", "aligned"].includes(thread.status),
+			["open", "agent_replied", "needs_user"].includes(thread.status),
 		).length;
+		const addressThisCount = threads.filter((t) => t.resolution === "address_this").length;
+		const noChangesCount = threads.filter((t) => t.resolution === "no_changes").length;
 		return {
 			id: row.id,
 			sessionId: row.session_id,
-			seq: row.seq,
-			state: row.state as ReviewRoundView["state"],
+			revisionNumber: row.seq,
+			state: row.state as RevisionView["state"],
 			startedAt: row.started_at,
-			submittedAt: row.submitted_at ?? undefined,
-			alignedAt: row.aligned_at ?? undefined,
-			appliedAt: row.applied_at ?? undefined,
-			freezeWrites: Boolean(row.freeze_writes),
+			checkpointId: row.checkpoint_id ?? undefined,
+			baselineCheckpointId: row.baseline_checkpoint_id ?? undefined,
+			approvedAt: row.approved_at ?? undefined,
 			summaryMarkdown: row.summary_markdown ?? undefined,
+			addressThisCount,
+			noChangesCount,
 			unresolvedCount,
 			threads,
 			metadata: JSON.parse(row.metadata_json || "{}") as Record<string, unknown>,
 		};
 	}
 
-	listReviewRounds(sessionId: string) {
+	listRevisions(sessionId: string) {
 		return this.db
 			.all<ReviewRoundRow>(
-				"select * from review_rounds where session_id = ? order by seq desc",
+				"select * from review_rounds where session_id = ? order by seq asc",
 				sessionId,
 			)
-			.map((row) => this.mapRound(row));
+			.map((row) => this.mapRevision(row));
 	}
 
-	getReviewRound(reviewRoundId: string) {
+	getRevision(revisionId: string) {
 		const row = this.db.get<ReviewRoundRow>(
 			"select * from review_rounds where id = ?",
-			reviewRoundId,
+			revisionId,
 		);
-		return row ? this.mapRound(row) : null;
+		return row ? this.mapRevision(row) : null;
 	}
 
-	getActiveReviewRoundId(sessionId: string) {
+	getRevisionByNumber(sessionId: string, revisionNumber: number) {
+		const row = this.db.get<ReviewRoundRow>(
+			"select * from review_rounds where session_id = ? and seq = ?",
+			sessionId,
+			revisionNumber,
+		);
+		return row ? this.mapRevision(row) : null;
+	}
+
+	getActiveRevisionNumber(sessionId: string): number | undefined {
+		const row = this.db.get<{ seq: number }>(
+			`
+			select seq from review_rounds
+			where session_id = ?
+			  and state in ('active', 'discussing', 'resolved')
+			order by seq desc
+			limit 1
+			`,
+			sessionId,
+		);
+		return row?.seq;
+	}
+
+	getActiveRevisionId(sessionId: string): string | undefined {
 		const row = this.db.get<{ id: string }>(
 			`
 			select id from review_rounds
 			where session_id = ?
-			  and state in ('draft', 'submitted', 'awaiting_agent', 'awaiting_user', 'aligned', 'applying')
+			  and state in ('active', 'discussing', 'resolved')
 			order by seq desc
 			limit 1
 			`,
@@ -206,43 +233,41 @@ export class ReviewService {
 	}
 
 	isFreezeActive(sessionId: string) {
-		const row = this.db.get<{ state: string; freeze_writes: number }>(
+		const row = this.db.get<{ state: string }>(
 			`
-			select state, freeze_writes
+			select state
 			from review_rounds
 			where session_id = ?
-			  and state in ('submitted', 'awaiting_agent', 'awaiting_user')
+			  and state = 'discussing'
 			order by seq desc
 			limit 1
 			`,
 			sessionId,
 		);
-		return Boolean(row?.freeze_writes);
+		return Boolean(row);
 	}
 
 	private setSessionReviewState(sessionId: string, reviewState: ReviewState) {
+		const statusMap: Record<string, string> = {
+			reviewing: "reviewing",
+			discussing: "reviewing",
+			resolved: "reviewing",
+			approved: "idle",
+			none: "idle",
+		};
 		this.db.run(
 			"update sessions set review_state = ?, status = ?, last_activity_at = ? where id = ?",
 			reviewState,
-			reviewState === "aligned"
-				? "aligned"
-				: reviewState === "applied"
-					? "completed"
-					: reviewState === "pending"
-						? "waiting_for_review"
-						: "discussion_open",
+			statusMap[reviewState] ?? "idle",
 			Date.now(),
 			sessionId,
 		);
 	}
 
-	ensureDraftRound(sessionId: string) {
-		const existingId = this.getActiveReviewRoundId(sessionId);
-		if (existingId) {
-			const existing = this.getReviewRound(existingId);
-			if (existing && existing.state === "draft") {
-				return existing;
-			}
+	ensureActiveRevision(sessionId: string) {
+		const existingNumber = this.getActiveRevisionNumber(sessionId);
+		if (existingNumber !== undefined) {
+			return this.getRevisionByNumber(sessionId, existingNumber)!;
 		}
 		const seq =
 			(
@@ -252,25 +277,27 @@ export class ReviewService {
 				)?.seq ?? 0
 			) + 1;
 		const id = crypto.randomUUID();
+		const baselineCheckpoint = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
 		this.db.run(
 			`
 			insert into review_rounds (
-				id, session_id, seq, state, started_at, freeze_writes, metadata_json
-			) values (?, ?, ?, 'draft', ?, ?, ?)
+				id, session_id, seq, state, started_at, freeze_writes, baseline_checkpoint_id, metadata_json
+			) values (?, ?, ?, 'active', ?, 1, ?, ?)
 			`,
 			id,
 			sessionId,
 			seq,
 			Date.now(),
-			this.settings.getAppSettings().alwaysFreezeWritesDuringReview ? 1 : 0,
+			baselineCheckpoint?.id ?? null,
 			JSON.stringify({}),
 		);
-		return this.getReviewRound(id)!;
+		this.setSessionReviewState(sessionId, "reviewing");
+		return this.getRevision(id)!;
 	}
 
 	async createThread(reviewRoundId: string, anchor: CommentAnchor, body: string) {
-		const round = this.getReviewRound(reviewRoundId);
-		if (!round) throw new Error("Review round not found.");
+		const round = this.getRevision(reviewRoundId);
+		if (!round) throw new Error("Revision not found.");
 		const id = crypto.randomUUID();
 		const now = Date.now();
 		this.db.transaction(() => {
@@ -306,7 +333,7 @@ export class ReviewService {
 			this.db.get<ThreadRow>("select * from comment_threads where id = ?", id)!,
 		);
 		this.messenger.threadUpdated(thread);
-		this.messenger.reviewRoundUpdated(this.getReviewRound(reviewRoundId)!);
+		this.messenger.revisionUpdated(this.getRevision(reviewRoundId)!);
 		await this.refreshSession(round.sessionId);
 		return thread;
 	}
@@ -338,34 +365,35 @@ export class ReviewService {
 				threadId,
 			);
 			this.db.run(
-				"update review_rounds set state = 'awaiting_agent' where id = ?",
+				"update review_rounds set state = 'discussing' where id = ?",
 				thread.review_round_id,
 			);
 		});
 		const message = this.mapMessage(
 			this.db.get<MessageRow>("select * from comment_messages where id = ?", messageId)!,
 		);
-		const round = this.getReviewRound(thread.review_round_id)!;
+		const revision = this.getRevision(thread.review_round_id)!;
 		this.messenger.threadUpdated(
 			this.mapThread(
 				this.db.get<ThreadRow>("select * from comment_threads where id = ?", threadId)!,
 			),
 		);
-		this.messenger.reviewRoundUpdated(round);
-		this.setSessionReviewState(round.sessionId, "awaiting_agent");
-		await this.refreshSession(round.sessionId);
-		await this.runtimeBridge?.dispatchThreadReply(round.sessionId, round.id);
+		this.messenger.revisionUpdated(revision);
+		this.setSessionReviewState(revision.sessionId, "discussing");
+		await this.refreshSession(revision.sessionId);
+		await this.runtimeBridge?.dispatchThreadReply(revision.sessionId, revision.id);
 		return message;
 	}
 
-	async resolveThread(threadId: string) {
+	async resolveThread(threadId: string, resolution: ThreadResolution) {
 		const thread = this.db.get<ThreadRow>(
 			"select * from comment_threads where id = ?",
 			threadId,
 		);
 		if (!thread) return;
 		this.db.run(
-			"update comment_threads set status = 'resolved', resolved_at = ?, updated_at = ? where id = ?",
+			"update comment_threads set status = 'resolved', resolution = ?, resolved_at = ?, updated_at = ? where id = ?",
+			resolution,
 			Date.now(),
 			Date.now(),
 			threadId,
@@ -375,7 +403,15 @@ export class ReviewService {
 				this.db.get<ThreadRow>("select * from comment_threads where id = ?", threadId)!,
 			),
 		);
-		this.messenger.reviewRoundUpdated(this.getReviewRound(thread.review_round_id)!);
+		// Check if all threads are resolved
+		if (this.allThreadsResolved(thread.review_round_id)) {
+			this.db.run(
+				"update review_rounds set state = 'resolved' where id = ? and state in ('active', 'discussing')",
+				thread.review_round_id,
+			);
+			this.setSessionReviewState(thread.session_id, "resolved");
+		}
+		this.messenger.revisionUpdated(this.getRevision(thread.review_round_id)!);
 		await this.refreshSession(thread.session_id);
 	}
 
@@ -386,26 +422,44 @@ export class ReviewService {
 		);
 		if (!thread) return;
 		this.db.run(
-			"update comment_threads set status = 'open', resolved_at = null, outdated_at = null, updated_at = ? where id = ?",
+			"update comment_threads set status = 'open', resolution = null, resolved_at = null, outdated_at = null, updated_at = ? where id = ?",
 			Date.now(),
 			threadId,
 		);
+		// If revision was resolved, go back to active/discussing
+		const revision = this.getRevision(thread.review_round_id);
+		if (revision && revision.state === "resolved") {
+			this.db.run(
+				"update review_rounds set state = 'active' where id = ?",
+				thread.review_round_id,
+			);
+			this.setSessionReviewState(thread.session_id, "reviewing");
+		}
 		this.messenger.threadUpdated(
 			this.mapThread(
 				this.db.get<ThreadRow>("select * from comment_threads where id = ?", threadId)!,
 			),
 		);
-		this.messenger.reviewRoundUpdated(this.getReviewRound(thread.review_round_id)!);
+		this.messenger.revisionUpdated(this.getRevision(thread.review_round_id)!);
 		await this.refreshSession(thread.session_id);
 	}
 
+	allThreadsResolved(revisionId: string): boolean {
+		const count = this.db.get<{ cnt: number }>(
+			`select count(*) as cnt from comment_threads
+			 where review_round_id = ? and status not in ('resolved', 'outdated')`,
+			revisionId,
+		);
+		return (count?.cnt ?? 0) === 0;
+	}
+
 	buildRoundPayload(reviewRoundId: string): ReviewRoundPayload {
-		const round = this.getReviewRound(reviewRoundId);
-		if (!round) throw new Error("Review round not found.");
+		const round = this.getRevision(reviewRoundId);
+		if (!round) throw new Error("Revision not found.");
 		return {
 			reviewRoundId: round.id,
-			objective: "Address the inline review comments and align on the next patch.",
-			freezeWrites: round.freezeWrites,
+			objective: "Address the inline review comments.",
+			freezeWrites: true,
 			threads: round.threads.map((thread) => ({
 				threadId: thread.id,
 				filePath: thread.filePath,
@@ -419,7 +473,7 @@ export class ReviewService {
 		};
 	}
 
-	private buildRoundSummaryMarkdown(round: ReviewRoundView) {
+	private buildRoundSummaryMarkdown(round: RevisionView) {
 		const threadEntries = round.threads.map((thread) => {
 			const body = thread.messages
 				.map((message) => `- ${message.authorType}: ${message.bodyMarkdown}`)
@@ -427,7 +481,7 @@ export class ReviewService {
 			return `### ${thread.filePath}:${thread.anchor.line} (thread: ${thread.id})\n${body}`;
 		});
 		return [
-			`# Review round ${round.seq}`,
+			`# Review — Revision ${round.revisionNumber}`,
 			"",
 			"You MUST respond using the **review_reply** tool. Do NOT reply in chat.",
 			`Pass reviewRoundId: "${round.id}" and include a response for each thread below.`,
@@ -437,8 +491,11 @@ export class ReviewService {
 		].join("\n");
 	}
 
-	async submitReview(sessionId: string) {
-		const round = this.ensureDraftRound(sessionId);
+	async publishComments(sessionId: string) {
+		const revision = this.ensureActiveRevision(sessionId);
+		if (revision.threads.length === 0) {
+			throw new Error("No comments to publish.");
+		}
 		const cwdPath = this.db.get<{ cwd_path: string }>(
 			"select cwd_path from sessions where id = ?",
 			sessionId,
@@ -453,92 +510,297 @@ export class ReviewService {
 		this.db.run(
 			`
 			update review_rounds
-			set state = 'awaiting_agent', submitted_at = ?, summary_markdown = ?
+			set state = 'discussing', submitted_at = ?, summary_markdown = ?
 			where id = ?
 			`,
 			Date.now(),
-			this.buildRoundSummaryMarkdown(round),
-			round.id,
+			this.buildRoundSummaryMarkdown(revision),
+			revision.id,
 		);
-		this.setSessionReviewState(sessionId, "awaiting_agent");
-		this.messenger.reviewRoundUpdated(this.getReviewRound(round.id)!);
-		this.messenger.diffInvalidated({ sessionId, scope: "review_round_changes" });
-		await this.runtimeBridge?.dispatchReviewRound(sessionId, round.id);
+		this.setSessionReviewState(sessionId, "discussing");
+		this.messenger.revisionUpdated(this.getRevision(revision.id)!);
+		this.messenger.diffInvalidated({ sessionId });
+		await this.runtimeBridge?.dispatchDiscussion(sessionId, revision.id);
 		await this.refreshSession(sessionId);
-		return this.getReviewRound(round.id)!;
+		return this.getRevision(revision.id)!;
 	}
 
-	async markAligned(reviewRoundId: string) {
-		const round = this.getReviewRound(reviewRoundId);
-		if (!round) return;
-		await this.checkpoints.createCheckpoint({
-			sessionId: round.sessionId,
-			cwd:
-				this.db.get<{ cwd_path: string }>(
-					"select cwd_path from sessions where id = ?",
-					round.sessionId,
-				)?.cwd_path ?? "",
-			kind: "alignment",
-		});
-		this.db.transaction(() => {
+	async approveRevision(sessionId: string) {
+		const revisionNumber = this.getActiveRevisionNumber(sessionId);
+		if (revisionNumber === undefined) {
+			// No active revision — could be approving with no comments
+			// Create a revision and immediately approve it
+			const revision = this.ensureActiveRevision(sessionId);
 			this.db.run(
-				"update review_rounds set state = 'aligned', aligned_at = ? where id = ?",
+				"update review_rounds set state = 'approved', approved_at = ? where id = ?",
 				Date.now(),
-				reviewRoundId,
+				revision.id,
 			);
-			this.db.run(
-				`
-				update comment_threads
-				set status = case
-					when status in ('resolved', 'applied') then status
-					else 'aligned'
-				end,
-				    updated_at = ?
-				where review_round_id = ?
-				`,
-				Date.now(),
-				reviewRoundId,
-			);
-		});
-		this.setSessionReviewState(round.sessionId, "aligned");
-		this.messenger.reviewRoundUpdated(this.getReviewRound(reviewRoundId)!);
-		await this.refreshSession(round.sessionId);
-	}
-
-	private buildAlignedOutcomeMarkdown(round: ReviewRoundView) {
-		const alignedThreads = round.threads.filter((thread) =>
-			["aligned", "open", "agent_replied", "needs_user"].includes(thread.status),
+			this.setSessionReviewState(sessionId, "approved");
+			this.messenger.revisionUpdated(this.getRevision(revision.id)!);
+			await this.refreshSession(sessionId);
+			return;
+		}
+		const revision = this.getRevisionByNumber(sessionId, revisionNumber)!;
+		const cwdPath = this.db.get<{ cwd_path: string }>(
+			"select cwd_path from sessions where id = ?",
+			sessionId,
+		)?.cwd_path;
+		if (cwdPath) {
+			await this.checkpoints.createCheckpoint({
+				sessionId,
+				cwd: cwdPath,
+				kind: "revision",
+			});
+		}
+		this.db.run(
+			"update review_rounds set state = 'approved', approved_at = ? where id = ?",
+			Date.now(),
+			revision.id,
 		);
+		this.setSessionReviewState(sessionId, "approved");
+		this.messenger.revisionUpdated(this.getRevision(revision.id)!);
+		await this.refreshSession(sessionId);
+	}
+
+	buildAddressThisPrompt(revisionId: string): string {
+		const revision = this.getRevision(revisionId);
+		if (!revision) return "";
+		const addressThreads = revision.threads.filter((t) => t.resolution === "address_this");
+		if (addressThreads.length === 0) return "";
+		const parts = addressThreads.map((thread) => {
+			const discussion = thread.messages
+				.map((m) => `  - ${m.authorType}: ${m.bodyMarkdown}`)
+				.join("\n");
+			return `### ${thread.filePath}:${thread.anchor.line}\n${discussion}`;
+		});
 		return [
-			`Aligned outcome for review round ${round.seq}`,
+			`# Implement changes for Revision ${revision.revisionNumber + 1}`,
 			"",
-			...alignedThreads.map((thread) => {
-				const lastAgentReply = [...thread.messages]
-					.reverse()
-					.find((message) => message.authorType === "agent");
-				return `- ${thread.filePath}:${thread.anchor.line} ${lastAgentReply?.bodyMarkdown ?? "Apply the agreed change."}`;
-			}),
+			"The user has reviewed your changes and marked the following threads as needing changes.",
+			"Implement the requested changes based on the discussion below.",
+			"",
+			...parts,
 		].join("\n");
 	}
 
-	async applyAlignedChanges(reviewRoundId: string) {
-		const round = this.getReviewRound(reviewRoundId);
-		if (!round) return;
+	async startNextRevision(sessionId: string) {
+		const currentNumber = this.getActiveRevisionNumber(sessionId);
+		if (currentNumber === undefined) {
+			throw new Error("No active revision to advance from.");
+		}
+		const current = this.getRevisionByNumber(sessionId, currentNumber)!;
+		const cwdPath = this.db.get<{ cwd_path: string }>(
+			"select cwd_path from sessions where id = ?",
+			sessionId,
+		)?.cwd_path;
+
+		// Create a checkpoint for the current state before starting next revision
+		let checkpointId: string | undefined;
+		if (cwdPath) {
+			const cp = await this.checkpoints.createCheckpoint({
+				sessionId,
+				cwd: cwdPath,
+				kind: "revision",
+			});
+			checkpointId = cp?.id;
+		}
+
+		// Mark current revision as superseded
 		this.db.run(
-			"update review_rounds set state = 'applying' where id = ?",
-			reviewRoundId,
+			"update review_rounds set state = 'superseded', checkpoint_id = ? where id = ?",
+			checkpointId ?? null,
+			current.id,
 		);
+
+		// Build the prompt from address_this threads
+		const prompt = this.buildAddressThisPrompt(current.id);
+
+		// Create new revision
+		const newSeq = currentNumber + 1;
+		const newId = crypto.randomUUID();
 		this.db.run(
-			"update sessions set status = 'applying', last_activity_at = ? where id = ?",
+			`
+			insert into review_rounds (
+				id, session_id, seq, state, started_at, freeze_writes, baseline_checkpoint_id, metadata_json
+			) values (?, ?, ?, 'active', ?, 1, ?, ?)
+			`,
+			newId,
+			sessionId,
+			newSeq,
 			Date.now(),
-			round.sessionId,
+			checkpointId ?? null,
+			JSON.stringify({}),
 		);
-		this.messenger.reviewRoundUpdated(this.getReviewRound(reviewRoundId)!);
-		await this.runtimeBridge?.applyAlignedRound(reviewRoundId);
+
+		this.setSessionReviewState(sessionId, "reviewing");
+		this.messenger.revisionUpdated(this.getRevision(current.id)!);
+		this.messenger.revisionUpdated(this.getRevision(newId)!);
+		this.messenger.diffInvalidated({ sessionId });
+
+		// Dispatch the address_this prompt to the agent
+		if (prompt) {
+			await this.runtimeBridge?.dispatchAddressThis(sessionId, newId, prompt);
+		}
+
+		await this.refreshSession(sessionId);
+		return this.getRevision(newId)!;
+	}
+
+	async applyRevision(sessionId: string) {
+		const cwdPath = this.db.get<{ cwd_path: string }>(
+			"select cwd_path from sessions where id = ?",
+			sessionId,
+		)?.cwd_path;
+		if (cwdPath) {
+			await this.git.commitWorktreeChanges(cwdPath, "Apply approved revision");
+		}
+		this.db.run(
+			"update sessions set status = 'completed', last_activity_at = ? where id = ?",
+			Date.now(),
+			sessionId,
+		);
+		await this.refreshSession(sessionId);
+	}
+
+	async applyAndMerge(sessionId: string) {
+		const row = this.db.get<{
+			cwd_path: string;
+			worktree_path: string | null;
+			worktree_branch: string | null;
+			base_ref: string | null;
+			project_id: string;
+			mode: string;
+		}>(
+			"select cwd_path, worktree_path, worktree_branch, base_ref, project_id, mode from sessions where id = ?",
+			sessionId,
+		);
+		if (!row) throw new Error("Session not found.");
+
+		// Commit changes
+		await this.git.commitWorktreeChanges(row.cwd_path, "Apply approved revision");
+
+		// Merge if worktree mode
+		if (row.mode === "worktree" && row.worktree_branch && row.base_ref) {
+			const projectRow = this.db.get<{ root_path: string }>(
+				"select root_path from projects where id = ?",
+				row.project_id,
+			);
+			if (projectRow) {
+				await this.git.mergeWorktreeBranch({
+					repoRoot: projectRow.root_path,
+					worktreeBranch: row.worktree_branch,
+					baseBranch: row.base_ref,
+				});
+			}
+		}
+
+		this.db.run(
+			"update sessions set status = 'completed', last_activity_at = ? where id = ?",
+			Date.now(),
+			sessionId,
+		);
+		await this.refreshSession(sessionId);
+	}
+
+	async buildRevisionDiff(
+		sessionId: string,
+		revisionNumber: number,
+		mode: DiffMode,
+	): Promise<DiffSnapshotView> {
+		const revision = this.getRevisionByNumber(sessionId, revisionNumber);
+		const cwdPath = this.db.get<{ cwd_path: string }>(
+			"select cwd_path from sessions where id = ?",
+			sessionId,
+		)?.cwd_path;
+		if (!cwdPath) throw new Error("Session not found.");
+
+		let fromRef: string | undefined;
+		let toRef: string | undefined;
+		let fromLabel: string;
+		let toLabel: string;
+		let title: string;
+
+		if (mode === "cumulative") {
+			// Baseline → current revision (or working tree)
+			const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
+			fromRef = baseline?.gitTree;
+			fromLabel = "Baseline";
+
+			if (revision?.state === "superseded" && revision.checkpointId) {
+				const cp = this.checkpoints.getCheckpoint(revision.checkpointId);
+				toRef = cp?.gitTree;
+				toLabel = `Rev ${revisionNumber}`;
+			} else {
+				const wt = await this.git.captureWorkingTree(cwdPath);
+				toRef = wt.tree;
+				toLabel = "Working tree";
+			}
+			title = `Cumulative — Rev ${revisionNumber}`;
+		} else {
+			// Incremental: previous revision checkpoint → current
+			if (revisionNumber > 1) {
+				const prevRevision = this.getRevisionByNumber(sessionId, revisionNumber - 1);
+				if (prevRevision?.checkpointId) {
+					const cp = this.checkpoints.getCheckpoint(prevRevision.checkpointId);
+					fromRef = cp?.gitTree;
+				} else if (prevRevision?.baselineCheckpointId) {
+					const cp = this.checkpoints.getCheckpoint(prevRevision.baselineCheckpointId);
+					fromRef = cp?.gitTree;
+				}
+			} else {
+				const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
+				fromRef = baseline?.gitTree;
+			}
+			fromLabel = revisionNumber > 1 ? `Rev ${revisionNumber - 1}` : "Baseline";
+
+			if (revision?.state === "superseded" && revision.checkpointId) {
+				const cp = this.checkpoints.getCheckpoint(revision.checkpointId);
+				toRef = cp?.gitTree;
+				toLabel = `Rev ${revisionNumber}`;
+			} else {
+				const wt = await this.git.captureWorkingTree(cwdPath);
+				toRef = wt.tree;
+				toLabel = "Working tree";
+			}
+			title = `Incremental — Rev ${revisionNumber}`;
+		}
+
+		if (!fromRef || !toRef) {
+			// Return empty diff
+			return this.checkpoints.storeDiffSnapshot({
+				sessionId,
+				scope: "session_changes",
+				title,
+				description: `${mode} diff for revision ${revisionNumber}`,
+				fromLabel,
+				toLabel,
+				patch: "",
+				stats: { filesChanged: 0, additions: 0, deletions: 0, fileStats: [] },
+			});
+		}
+
+		const diff = await this.git.diffBetweenRefs(cwdPath, fromRef, toRef);
+		const snapshot = this.checkpoints.storeDiffSnapshot({
+			sessionId,
+			scope: "session_changes",
+			title,
+			description: `${mode} diff for revision ${revisionNumber}`,
+			fromLabel,
+			toLabel,
+			patch: diff.patch,
+			stats: diff.stats,
+		});
+		// Add revision metadata
+		return {
+			...snapshot,
+			revisionNumber,
+			diffMode: mode,
+		};
 	}
 
 	async handleAgentReviewReply(sessionId: string, payload: ReviewReplyPayload) {
-		const round = this.getReviewRound(payload.reviewRoundId);
+		const round = this.getRevision(payload.reviewRoundId);
 		if (!round) return;
 		this.db.transaction(() => {
 			for (const threadReply of payload.threads) {
@@ -568,56 +830,23 @@ export class ReviewService {
 					threadReply.threadId,
 				);
 			}
+			// Stay in discussing state — threads need resolution
 			this.db.run(
 				`
 				update review_rounds
-				set state = 'awaiting_user', summary_markdown = ?
+				set summary_markdown = ?
 				where id = ?
 				`,
 				payload.summary ?? round.summaryMarkdown ?? null,
 				payload.reviewRoundId,
 			);
 		});
-		this.setSessionReviewState(sessionId, "awaiting_user");
-		const updatedRound = this.getReviewRound(payload.reviewRoundId)!;
+		this.setSessionReviewState(sessionId, "discussing");
+		const updatedRound = this.getRevision(payload.reviewRoundId)!;
 		for (const thread of updatedRound.threads) {
 			this.messenger.threadUpdated(thread);
 		}
-		this.messenger.reviewRoundUpdated(updatedRound);
-		await this.refreshSession(sessionId);
-	}
-
-	async markRoundAppliedForSession(sessionId: string) {
-		const round = this.db.get<{ id: string }>(
-			`
-			select id
-			from review_rounds
-			where session_id = ? and state = 'applying'
-			order by seq desc
-			limit 1
-			`,
-			sessionId,
-		);
-		if (!round) return;
-		this.db.transaction(() => {
-			this.db.run(
-				"update review_rounds set state = 'applied', applied_at = ? where id = ?",
-				Date.now(),
-				round.id,
-			);
-			this.db.run(
-				`
-				update comment_threads
-				set status = case when status = 'resolved' then status else 'applied' end,
-				    updated_at = ?
-				where review_round_id = ?
-				`,
-				Date.now(),
-				round.id,
-			);
-		});
-		this.setSessionReviewState(sessionId, "applied");
-		this.messenger.reviewRoundUpdated(this.getReviewRound(round.id)!);
+		this.messenger.revisionUpdated(updatedRound);
 		await this.refreshSession(sessionId);
 	}
 
@@ -626,7 +855,7 @@ export class ReviewService {
 			`
 			select * from comment_threads
 			where session_id = ?
-			  and status in ('open', 'agent_replied', 'needs_user', 'aligned')
+			  and status in ('open', 'agent_replied', 'needs_user')
 			`,
 			sessionId,
 		);

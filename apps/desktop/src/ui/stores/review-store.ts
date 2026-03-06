@@ -2,103 +2,126 @@ import { create } from "zustand";
 import type {
 	CommentAnchor,
 	CommentThreadView,
-	DiffScope,
-	DiffScopeSummary,
+	DiffMode,
 	DiffSnapshotView,
-	ReviewRoundView,
+	RevisionView,
 	SessionHydration,
+	ThreadResolution,
 } from "@shared/models";
 import { rpc } from "@ui/lib/rpc-client";
 
 type ReviewState = {
 	sessionId?: string;
-	diffScopes: DiffScopeSummary[];
-	currentScope?: DiffScope;
+	revisions: RevisionView[];
+	activeRevisionNumber?: number;
+	selectedRevisionNumber?: number;
+	diffMode: DiffMode;
 	currentDiff?: DiffSnapshotView;
-	reviewRounds: ReviewRoundView[];
-	activeReviewRoundId?: string;
 	diffStale: boolean;
 	hydrate: (hydration: SessionHydration) => void;
-	buildDiff: (scope: DiffScope) => Promise<void>;
-	updateRound: (round: ReviewRoundView) => void;
+	setSelectedRevision: (n: number) => void;
+	setDiffMode: (mode: DiffMode) => void;
+	buildRevisionDiff: (revisionNumber: number, mode: DiffMode) => Promise<void>;
+	updateRevision: (revision: RevisionView) => void;
 	updateThread: (thread: CommentThreadView) => void;
 	createThread: (anchor: CommentAnchor, body: string) => Promise<void>;
 	replyToThread: (threadId: string, body: string) => Promise<void>;
-	resolveThread: (threadId: string) => Promise<void>;
+	resolveThread: (threadId: string, resolution: ThreadResolution) => Promise<void>;
 	reopenThread: (threadId: string) => Promise<void>;
-	submitReview: () => Promise<void>;
-	markAligned: () => Promise<void>;
-	applyAlignedChanges: () => Promise<void>;
-	markStale: (sessionId: string, scope?: DiffScope) => void;
+	publishComments: () => Promise<void>;
+	startNextRevision: () => Promise<void>;
+	approve: () => Promise<void>;
+	applyRevision: () => Promise<void>;
+	applyAndMerge: () => Promise<void>;
+	markStale: (sessionId: string, revisionNumber?: number) => void;
 };
 
 export const useReviewStore = create<ReviewState>((set, get) => ({
 	sessionId: undefined,
-	diffScopes: [],
-	currentScope: undefined,
+	revisions: [],
+	activeRevisionNumber: undefined,
+	selectedRevisionNumber: undefined,
+	diffMode: "incremental",
 	currentDiff: undefined,
-	reviewRounds: [],
-	activeReviewRoundId: undefined,
 	diffStale: false,
 	hydrate(hydration) {
-		const defaultScope =
-			hydration.currentDiff?.scope ??
-			hydration.diffScopes.find((s) => s.available)?.scope;
+		const activeNum = hydration.activeRevisionNumber;
 		set({
 			sessionId: hydration.session.id,
-			diffScopes: hydration.diffScopes,
+			revisions: hydration.revisions,
+			activeRevisionNumber: activeNum,
+			selectedRevisionNumber: activeNum,
+			diffMode: "incremental",
 			currentDiff: hydration.currentDiff,
-			currentScope: defaultScope,
-			reviewRounds: hydration.reviewRounds,
-			activeReviewRoundId: hydration.activeReviewRoundId,
 			diffStale: false,
 		});
-		if (!hydration.currentDiff && defaultScope) {
-			void get().buildDiff(defaultScope);
+		if (!hydration.currentDiff && activeNum !== undefined) {
+			void get().buildRevisionDiff(activeNum, "incremental");
 		}
 	},
-	async buildDiff(scope) {
+	setSelectedRevision(n) {
+		set({ selectedRevisionNumber: n });
+		void get().buildRevisionDiff(n, get().diffMode);
+	},
+	setDiffMode(mode) {
+		set({ diffMode: mode });
+		const selectedRev = get().selectedRevisionNumber;
+		if (selectedRev !== undefined) {
+			void get().buildRevisionDiff(selectedRev, mode);
+		}
+	},
+	async buildRevisionDiff(revisionNumber, mode) {
 		const sessionId = get().sessionId;
 		if (!sessionId) return;
-		const diff = await rpc.request.buildDiff({ sessionId, scope });
-		set({
-			currentDiff: diff,
-			currentScope: scope,
-			diffStale: false,
-		});
+		try {
+			const diff = await rpc.request.buildRevisionDiff({ sessionId, revisionNumber, mode });
+			set({
+				currentDiff: diff,
+				diffStale: false,
+			});
+		} catch {
+			// Ignore errors
+		}
 	},
-	updateRound(round) {
+	updateRevision(revision) {
 		set((state) => {
-			const reviewRounds = [...state.reviewRounds];
-			const index = reviewRounds.findIndex((item) => item.id === round.id);
-			if (index === -1) reviewRounds.unshift(round);
-			else reviewRounds[index] = round;
+			const revisions = [...state.revisions];
+			const index = revisions.findIndex((item) => item.id === revision.id);
+			if (index === -1) revisions.push(revision);
+			else revisions[index] = revision;
+			revisions.sort((a, b) => a.revisionNumber - b.revisionNumber);
+			const activeNum = revisions
+				.filter((r) => ["active", "discussing", "resolved"].includes(r.state))
+				.at(-1)?.revisionNumber;
 			return {
-				reviewRounds,
-				activeReviewRoundId:
-					state.activeReviewRoundId ?? round.id,
+				revisions,
+				activeRevisionNumber: activeNum ?? state.activeRevisionNumber,
+				selectedRevisionNumber: state.selectedRevisionNumber ?? activeNum,
 			};
 		});
 	},
 	updateThread(thread) {
 		set((state) => ({
-			reviewRounds: state.reviewRounds.map((round) =>
-				round.id !== thread.reviewRoundId
-					? round
+			revisions: state.revisions.map((revision) =>
+				revision.id !== thread.reviewRoundId
+					? revision
 					: {
-							...round,
-							threads: round.threads.some((item) => item.id === thread.id)
-								? round.threads.map((item) => (item.id === thread.id ? thread : item))
-								: [...round.threads, thread],
+							...revision,
+							threads: revision.threads.some((item) => item.id === thread.id)
+								? revision.threads.map((item) => (item.id === thread.id ? thread : item))
+								: [...revision.threads, thread],
 						},
 			),
 		}));
 	},
 	async createThread(anchor, body) {
-		const reviewRoundId = get().activeReviewRoundId;
-		if (!reviewRoundId) return;
+		const state = get();
+		const activeRevision = state.revisions.find(
+			(r) => r.revisionNumber === state.activeRevisionNumber,
+		);
+		if (!activeRevision) return;
 		await rpc.request.createThread({
-			reviewRoundId,
+			reviewRoundId: activeRevision.id,
 			anchor,
 			body,
 		});
@@ -106,37 +129,46 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	async replyToThread(threadId, body) {
 		await rpc.request.replyToThread({ threadId, body });
 	},
-	async resolveThread(threadId) {
-		await rpc.request.resolveThread({ threadId });
+	async resolveThread(threadId, resolution) {
+		await rpc.request.resolveThread({ threadId, resolution });
 	},
 	async reopenThread(threadId) {
 		await rpc.request.reopenThread({ threadId });
 	},
-	async submitReview() {
+	async publishComments() {
 		const sessionId = get().sessionId;
 		if (!sessionId) return;
-		const round = await rpc.request.submitReview({ sessionId });
-		get().updateRound(round);
+		const revision = await rpc.request.publishComments({ sessionId });
+		get().updateRevision(revision);
 	},
-	async markAligned() {
-		const reviewRoundId = get().activeReviewRoundId;
-		if (!reviewRoundId) return;
-		await rpc.request.markAligned({ reviewRoundId });
+	async startNextRevision() {
+		const sessionId = get().sessionId;
+		if (!sessionId) return;
+		const revision = await rpc.request.startNextRevision({ sessionId });
+		get().updateRevision(revision);
+		set({ selectedRevisionNumber: revision.revisionNumber });
 	},
-	async applyAlignedChanges() {
-		const reviewRoundId = get().activeReviewRoundId;
-		if (!reviewRoundId) return;
-		await rpc.request.applyAlignedChanges({ reviewRoundId });
+	async approve() {
+		const sessionId = get().sessionId;
+		if (!sessionId) return;
+		await rpc.request.approveRevision({ sessionId });
 	},
-	markStale(sessionId, scope) {
+	async applyRevision() {
+		const sessionId = get().sessionId;
+		if (!sessionId) return;
+		await rpc.request.applyRevision({ sessionId });
+	},
+	async applyAndMerge() {
+		const sessionId = get().sessionId;
+		if (!sessionId) return;
+		await rpc.request.applyAndMerge({ sessionId });
+	},
+	markStale(sessionId, _revisionNumber) {
 		if (sessionId !== get().sessionId) return;
-		if (scope && scope !== get().currentScope) return;
 		set({ diffStale: true });
-		const refreshScope =
-			get().currentScope ??
-			get().diffScopes.find((s) => s.available)?.scope;
-		if (refreshScope) {
-			void get().buildDiff(refreshScope);
+		const selectedRev = get().selectedRevisionNumber ?? get().activeRevisionNumber;
+		if (selectedRev !== undefined) {
+			void get().buildRevisionDiff(selectedRev, get().diffMode);
 		}
 	},
 }));

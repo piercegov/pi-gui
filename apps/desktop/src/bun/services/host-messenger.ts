@@ -1,8 +1,7 @@
 import type {
 	CommentThreadView,
-	DiffScope,
 	GitStatusView,
-	ReviewRoundView,
+	RevisionView,
 	SessionStreamEvent,
 	SessionSummary,
 	ToastMessage,
@@ -11,9 +10,9 @@ import type {
 export interface HostMessenger {
 	sessionEvent(event: SessionStreamEvent): void;
 	sessionSummaryUpdated(summary: SessionSummary): void;
-	reviewRoundUpdated(round: ReviewRoundView): void;
+	revisionUpdated(revision: RevisionView): void;
 	threadUpdated(thread: CommentThreadView): void;
-	diffInvalidated(payload: { sessionId: string; scope?: DiffScope }): void;
+	diffInvalidated(payload: { sessionId: string; revisionNumber?: number }): void;
 	terminalData(payload: {
 		terminalId: string;
 		sessionId: string;

@@ -4,9 +4,9 @@ import type { ProjectSummary, SessionSummary } from "@shared/models";
 
 function sessionStatusColor(status: SessionSummary["status"]) {
 	if (status === "running") return "bg-state-running";
-	if (status === "waiting_for_review" || status === "discussion_open") return "bg-state-review";
+	if (status === "reviewing") return "bg-state-review";
 	if (status === "error") return "bg-state-error";
-	if (status === "completed" || status === "aligned") return "bg-state-applied";
+	if (status === "completed") return "bg-state-applied";
 	return "bg-white/20";
 }
 

@@ -71,10 +71,9 @@ export class PiRuntimeManager {
 	private hooks?: RuntimeHooks;
 	private reviewState?: {
 		isFreezeActive(sessionId: string): boolean;
-		getActiveReviewRoundId(sessionId: string): string | undefined;
+		getActiveRevisionId(sessionId: string): string | undefined;
 		handleReviewReply(sessionId: string, payload: ReviewReplyPayload): Promise<void>;
 		buildReviewMarkdown(reviewRoundId: string): string;
-		buildAlignedOutcome(reviewRoundId: string): string;
 		getSessionIdByReviewRound(reviewRoundId: string): string | undefined;
 	};
 
@@ -189,7 +188,6 @@ export class PiRuntimeManager {
 	getConversation(sessionId: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) return [];
-		// Build toolCallId → arguments map from assistant messages
 		const toolCallArgs = new Map<string, Record<string, unknown>>();
 		for (const message of runtime.session.messages) {
 			if ("role" in message && message.role === "assistant") {
@@ -389,13 +387,11 @@ export class PiRuntimeManager {
 				messageIndex,
 			);
 			if (!entry) return;
-			// Skip user messages — already emitted synthetically by emitUserMessage()
 			if (entry.kind === "user") return;
 			if (entry.kind === "assistant") {
 				entry.status = "streaming";
 				runtime.lastAssistantId = entry.id;
 			}
-			// Track the index so message_end can reuse the same ID
 			runtime.lastMessageIndex = messageIndex;
 			this.emitStreamEvent({
 				type: "message_upsert",
@@ -415,7 +411,6 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "message_end") {
-			// Reuse the index from message_start so the ID matches
 			const messageIndex = runtime.lastMessageIndex ?? runtime.session.messages.length;
 			runtime.lastMessageIndex = undefined;
 			const entry = this.mapConversationMessage(
@@ -424,7 +419,6 @@ export class PiRuntimeManager {
 				messageIndex,
 			);
 			if (!entry) return;
-			// Skip user messages — already emitted synthetically by emitUserMessage()
 			if (entry.kind === "user") return;
 			this.emitStreamEvent({
 				type: "message_upsert",
@@ -506,7 +500,6 @@ export class PiRuntimeManager {
 			if (MUTATING_TOOLS.has(event.toolName) && !event.isError) {
 				this.messenger.diffInvalidated({
 					sessionId: runtime.record.id,
-					scope: "session_changes",
 				});
 			}
 			return;
@@ -542,7 +535,7 @@ export class PiRuntimeManager {
 					isDiscussionFrozen: () =>
 						this.reviewState?.isFreezeActive(record.id) ?? false,
 					getActiveReviewRoundId: () =>
-						this.reviewState?.getActiveReviewRoundId(record.id),
+						this.reviewState?.getActiveRevisionId(record.id),
 				}),
 			],
 		});
@@ -631,7 +624,7 @@ export class PiRuntimeManager {
 		return runtime;
 	}
 
-	async dispatchReviewRound(sessionId: string, reviewRoundId: string) {
+	async dispatchDiscussion(sessionId: string, reviewRoundId: string) {
 		const runtime = this.requireRuntime(sessionId);
 		const markdown = this.reviewState?.buildReviewMarkdown(reviewRoundId);
 		if (!markdown) return;
@@ -652,23 +645,18 @@ export class PiRuntimeManager {
 	}
 
 	async dispatchThreadReply(sessionId: string, reviewRoundId: string) {
-		await this.dispatchReviewRound(sessionId, reviewRoundId);
+		await this.dispatchDiscussion(sessionId, reviewRoundId);
 	}
 
-	async applyAlignedRound(reviewRoundId: string) {
-		const sessionId = this.reviewState?.getSessionIdByReviewRound(reviewRoundId);
-		if (!sessionId) return;
+	async dispatchAddressThis(sessionId: string, _revisionId: string, prompt: string) {
 		const runtime = this.requireRuntime(sessionId);
-		const markdown = this.reviewState?.buildAlignedOutcome(reviewRoundId);
-		if (!markdown) return;
 		await runtime.session.sendCustomMessage(
 			{
-				customType: "pi-review-aligned",
-				content: markdown,
+				customType: "pi-review-address-this",
+				content: prompt,
 				display: false,
 				details: {
-					reviewRoundId,
-					aligned: true,
+					revisionId: _revisionId,
 				},
 			},
 			{

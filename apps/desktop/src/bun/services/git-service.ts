@@ -316,6 +316,38 @@ export class GitService {
 		await this.run(["git", "read-tree", "--reset", "-u", treeHash], { cwd });
 	}
 
+	async commitWorktreeChanges(cwd: string, message: string) {
+		await this.run(["git", "add", "-A"], { cwd });
+		const statusResult = await this.run(["git", "status", "--porcelain"], { cwd });
+		if (!statusResult.stdout.trim()) {
+			// Nothing to commit
+			const head = await this.getCurrentHead(cwd);
+			return head ?? "";
+		}
+		await this.run(
+			["git", "commit", "-m", message],
+			{ cwd, env: { GIT_COMMITTER_NAME: "Pi GUI", GIT_COMMITTER_EMAIL: "pi-gui@local", GIT_AUTHOR_NAME: "Pi GUI", GIT_AUTHOR_EMAIL: "pi-gui@local" } },
+		);
+		const head = await this.getCurrentHead(cwd);
+		return head ?? "";
+	}
+
+	async mergeWorktreeBranch(params: {
+		repoRoot: string;
+		worktreeBranch: string;
+		baseBranch: string;
+	}) {
+		await this.run(["git", "checkout", params.baseBranch], { cwd: params.repoRoot });
+		const mergeResult = await this.run(
+			["git", "merge", "--no-ff", params.worktreeBranch, "-m", `Merge ${params.worktreeBranch} into ${params.baseBranch}`],
+			{ cwd: params.repoRoot, allowFailure: true },
+		);
+		if (mergeResult.exitCode !== 0) {
+			await this.run(["git", "merge", "--abort"], { cwd: params.repoRoot, allowFailure: true });
+			throw new Error(`Merge conflict: ${mergeResult.stderr}`);
+		}
+	}
+
 	getProjectNameFromPath(rootPath: string) {
 		return basename(rootPath);
 	}

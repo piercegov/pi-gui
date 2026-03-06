@@ -88,7 +88,6 @@ export function App() {
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-	// Apply font size settings as CSS custom properties
 	useEffect(() => {
 		const root = document.documentElement;
 		root.style.setProperty("--markdown-font-size", `${settings?.markdownFontSize ?? 15}px`);
@@ -155,14 +154,14 @@ export function App() {
 		const onSessionEvent = (event: Parameters<typeof applyEvent>[0]) => {
 			applyEvent(event);
 		};
-		const onReviewRoundUpdated = (round: Parameters<typeof review.updateRound>[0]) => {
-			review.updateRound(round);
+		const onRevisionUpdated = (revision: Parameters<typeof review.updateRevision>[0]) => {
+			review.updateRevision(revision);
 		};
 		const onThreadUpdated = (thread: Parameters<typeof review.updateThread>[0]) => {
 			review.updateThread(thread);
 		};
-		const onDiffInvalidated = (payload: { sessionId: string; scope?: Parameters<typeof review.buildDiff>[0] }) => {
-			review.markStale(payload.sessionId, payload.scope);
+		const onDiffInvalidated = (payload: { sessionId: string; revisionNumber?: number }) => {
+			review.markStale(payload.sessionId, payload.revisionNumber);
 		};
 		const onTerminalData = (payload: { sessionId: string; data: string }) => {
 			appendTerminalOutput(payload.sessionId, payload.data);
@@ -178,7 +177,7 @@ export function App() {
 		};
 		rpc.addMessageListener("sessionSummaryUpdated", onSessionSummaryUpdated);
 		rpc.addMessageListener("sessionEvent", onSessionEvent);
-		rpc.addMessageListener("reviewRoundUpdated", onReviewRoundUpdated);
+		rpc.addMessageListener("revisionUpdated", onRevisionUpdated);
 		rpc.addMessageListener("threadUpdated", onThreadUpdated);
 		rpc.addMessageListener("diffInvalidated", onDiffInvalidated);
 		rpc.addMessageListener("terminalData", onTerminalData);
@@ -187,7 +186,7 @@ export function App() {
 		return () => {
 			rpc.removeMessageListener("sessionSummaryUpdated", onSessionSummaryUpdated);
 			rpc.removeMessageListener("sessionEvent", onSessionEvent);
-			rpc.removeMessageListener("reviewRoundUpdated", onReviewRoundUpdated);
+			rpc.removeMessageListener("revisionUpdated", onRevisionUpdated);
 			rpc.removeMessageListener("threadUpdated", onThreadUpdated);
 			rpc.removeMessageListener("diffInvalidated", onDiffInvalidated);
 			rpc.removeMessageListener("terminalData", onTerminalData);
@@ -250,8 +249,6 @@ export function App() {
 		}
 	};
 
-	// Suppress default browser context menu (Inspect Element, Reload, etc.)
-	// but allow it on interactive text elements and the terminal
 	useEffect(() => {
 		const onContextMenu = (event: MouseEvent) => {
 			const target = event.target as HTMLElement | null;
@@ -381,20 +378,23 @@ export function App() {
 					session={currentSession}
 					inspector={currentInspector}
 					diff={review.currentDiff}
-					diffScopes={review.diffScopes}
-					activeReviewRound={review.reviewRounds.find(
-						(round) => round.id === review.activeReviewRoundId,
-					)}
+					revisions={review.revisions}
+					activeRevisionNumber={review.activeRevisionNumber}
+					selectedRevisionNumber={review.selectedRevisionNumber}
+					diffMode={review.diffMode}
 					defaultView={settings?.defaultDiffView ?? "split"}
 					diffStale={review.diffStale}
-					onSelectScope={(scope) => review.buildDiff(scope)}
+					onSelectRevision={(n) => review.setSelectedRevision(n)}
+					onSetDiffMode={(mode) => review.setDiffMode(mode)}
 					onCreateThread={(anchor, body) => review.createThread(anchor, body)}
 					onReplyToThread={(threadId, body) => review.replyToThread(threadId, body)}
-					onResolveThread={(threadId) => review.resolveThread(threadId)}
+					onResolveThread={(threadId, resolution) => review.resolveThread(threadId, resolution)}
 					onReopenThread={(threadId) => review.reopenThread(threadId)}
-					onSubmitReview={() => review.submitReview()}
-					onMarkAligned={() => review.markAligned()}
-					onApplyAlignedChanges={() => review.applyAlignedChanges()}
+					onPublishComments={() => review.publishComments()}
+					onStartNextRevision={() => review.startNextRevision()}
+					onApprove={() => review.approve()}
+					onApplyRevision={() => review.applyRevision()}
+					onApplyAndMerge={() => review.applyAndMerge()}
 					onCreateManualCheckpoint={() =>
 						currentSession
 							? createManualCheckpoint(currentSession.id).then(() => undefined)

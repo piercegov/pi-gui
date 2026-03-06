@@ -3,16 +3,17 @@ import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-
 import type { HunkTokens } from "react-diff-view";
 import { refractor } from "refractor";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight } from "lucide-react";
+import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
-	DiffScope,
+	DiffMode,
 	DiffSnapshotView,
 	DiffViewMode,
-	ReviewRoundView,
+	RevisionView,
 	SessionInspectorView,
 	SessionSummary,
+	ThreadResolution,
 } from "@shared/models";
 import {
 	createAnchorFromChange,
@@ -46,8 +47,6 @@ function langFromPath(path: string): string | undefined {
 	}
 }
 
-// refractor v5 returns { type: "root", children: [...] } but react-diff-view
-// expects the old v3 API that returns children directly as an iterable.
 const refractorCompat = {
 	highlight(code: string, language: string) {
 		const result = refractor.highlight(code, language);
@@ -73,10 +72,27 @@ function tokenizeHunks(
 	}
 }
 
+function ResolutionBadge(props: { resolution: ThreadResolution }) {
+	if (props.resolution === "no_changes") {
+		return (
+			<span className="inline-flex items-center gap-0.5 text-2xs text-state-applied">
+				<Check className="h-2.5 w-2.5" />
+				No changes needed
+			</span>
+		);
+	}
+	return (
+		<span className="inline-flex items-center gap-0.5 text-2xs text-state-review">
+			<Flag className="h-2.5 w-2.5" />
+			Address this
+		</span>
+	);
+}
+
 function InlineThread(props: {
 	threads: CommentThreadView[];
 	onReply: (threadId: string, body: string) => Promise<void>;
-	onResolve: (threadId: string) => Promise<void>;
+	onResolve: (threadId: string, resolution: ThreadResolution) => Promise<void>;
 	onReopen: (threadId: string) => Promise<void>;
 }) {
 	const [replyBody, setReplyBody] = useState("");
@@ -121,7 +137,10 @@ function InlineThread(props: {
 			{props.threads.map((thread) => (
 				<div key={thread.id} className="border-b border-surface-border pb-2 last:border-b-0">
 					<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
-						<span className="uppercase tracking-wider">{thread.status.replace(/_/g, " ")}</span>
+						<div className="flex items-center gap-2">
+							<span className="uppercase tracking-wider">{thread.status.replace(/_/g, " ")}</span>
+							{thread.resolution && <ResolutionBadge resolution={thread.resolution} />}
+						</div>
 						<span className="mono">{thread.filePath}</span>
 					</div>
 					<div className="space-y-1.5">
@@ -136,12 +155,22 @@ function InlineThread(props: {
 					</div>
 					<div className="mt-2 flex gap-1.5">
 						{thread.status !== "resolved" ? (
-							<button
-								onClick={() => props.onResolve(thread.id)}
-								className="px-2 py-0.5 text-2xs text-white/40 transition hover:bg-white/5 hover:text-white/60"
-							>
-								Resolve
-							</button>
+							<>
+								<button
+									onClick={() => props.onResolve(thread.id, "no_changes")}
+									className="flex items-center gap-1 px-2 py-0.5 text-2xs text-state-applied/70 transition hover:bg-state-applied/10 hover:text-state-applied"
+								>
+									<Check className="h-3 w-3" />
+									No changes needed
+								</button>
+								<button
+									onClick={() => props.onResolve(thread.id, "address_this")}
+									className="flex items-center gap-1 px-2 py-0.5 text-2xs text-state-review/70 transition hover:bg-state-review/10 hover:text-state-review"
+								>
+									<Flag className="h-3 w-3" />
+									Address this
+								</button>
+							</>
 						) : (
 							<button
 								onClick={() => props.onReopen(thread.id)}
@@ -208,18 +237,23 @@ export function DiffPane(props: {
 	session?: SessionSummary;
 	inspector?: SessionInspectorView;
 	diff?: DiffSnapshotView;
-	diffScopes: Array<{ scope: DiffScope; label: string; available: boolean }>;
-	activeReviewRound?: ReviewRoundView;
+	revisions: RevisionView[];
+	activeRevisionNumber?: number;
+	selectedRevisionNumber?: number;
+	diffMode: DiffMode;
 	defaultView: DiffViewMode;
 	diffStale: boolean;
-	onSelectScope: (scope: DiffScope) => Promise<void>;
+	onSelectRevision: (n: number) => void;
+	onSetDiffMode: (mode: DiffMode) => void;
 	onCreateThread: (anchor: CommentAnchor, body: string) => Promise<void>;
 	onReplyToThread: (threadId: string, body: string) => Promise<void>;
-	onResolveThread: (threadId: string) => Promise<void>;
+	onResolveThread: (threadId: string, resolution: ThreadResolution) => Promise<void>;
 	onReopenThread: (threadId: string) => Promise<void>;
-	onSubmitReview: () => Promise<void>;
-	onMarkAligned: () => Promise<void>;
-	onApplyAlignedChanges: () => Promise<void>;
+	onPublishComments: () => Promise<void>;
+	onStartNextRevision: () => Promise<void>;
+	onApprove: () => Promise<void>;
+	onApplyRevision: () => Promise<void>;
+	onApplyAndMerge: () => Promise<void>;
 	onCreateManualCheckpoint: () => Promise<void>;
 	onRepairWorktree: () => Promise<void>;
 }) {
@@ -245,17 +279,21 @@ export function DiffPane(props: {
 		[props.diff],
 	);
 
-	// Reset collapsed files when diff changes
 	useEffect(() => {
 		setCollapsedFiles(new Set());
 	}, [props.diff?.id]);
 
+	const selectedRevision = useMemo(
+		() => props.revisions.find((r) => r.revisionNumber === props.selectedRevisionNumber),
+		[props.revisions, props.selectedRevisionNumber],
+	);
+
 	const visibleThreads = useMemo(() => {
-		const threads = props.activeReviewRound?.threads ?? [];
+		const threads = selectedRevision?.threads ?? [];
 		return unresolvedOnly
 			? threads.filter((thread) => thread.status !== "resolved")
 			: threads;
-	}, [props.activeReviewRound?.threads, unresolvedOnly]);
+	}, [selectedRevision?.threads, unresolvedOnly]);
 
 	const filteredFiles = useMemo(() => {
 		return parsedFiles.filter((file) =>
@@ -271,9 +309,10 @@ export function DiffPane(props: {
 		gap: 1,
 	});
 
-	const currentRoundState = props.activeReviewRound?.state;
+	const revisionState = selectedRevision?.state;
+	const hasDraftComments = (selectedRevision?.threads.length ?? 0) > 0;
+	const hasAddressThis = (selectedRevision?.addressThisCount ?? 0) > 0;
 
-	// Dismiss selection popup on outside click or Escape
 	useEffect(() => {
 		if (!selectionPopup) return;
 		const dismiss = (e: MouseEvent) => {
@@ -299,14 +338,11 @@ export function DiffPane(props: {
 			if (!diffContentRef.current || !props.diff) return;
 
 			const selectedText = sel.toString();
-
-			// Position popup above the selection
 			const range = sel.getRangeAt(0);
 			const rect = range.getBoundingClientRect();
 			const popupX = rect.left + rect.width / 2;
 			const popupY = rect.top - 8;
 
-			// Walk up from selection anchor to find table row
 			let node: Node | null = sel.anchorNode;
 			let row: HTMLElement | null = null;
 			while (node && node !== diffContentRef.current) {
@@ -318,7 +354,6 @@ export function DiffPane(props: {
 			}
 			if (!row) return;
 
-			// Find file container with data-file-path
 			let el: HTMLElement | null = row;
 			while (el && !el.dataset?.filePath) {
 				el = el.parentElement;
@@ -326,11 +361,9 @@ export function DiffPane(props: {
 			if (!el?.dataset?.filePath) return;
 			const filePath = el.dataset.filePath;
 
-			// Determine side from gutter cell classes
 			const isDelete = row.querySelector(".diff-gutter-delete") !== null;
 			const side: "old" | "new" = isDelete ? "old" : "new";
 
-			// Get line number from gutter cells
 			const gutterCells = Array.from(row.querySelectorAll(".diff-gutter"));
 			let lineNumber: number | null = null;
 			if (isDelete) {
@@ -438,21 +471,50 @@ export function DiffPane(props: {
 			{/* Toolbar */}
 			<div className="border-b border-surface-border px-3 py-2">
 				<div className="flex flex-wrap items-center gap-1.5">
-					<select
-						value={props.diff.scope}
-						onChange={(event) =>
-							void props.onSelectScope(event.target.value as DiffScope)
-						}
-						className="border border-surface-border bg-surface-2 px-2 py-1 text-xs text-white/70 outline-none"
-					>
-						{props.diffScopes
-							.filter((scope) => scope.available)
-							.map((scope) => (
-								<option key={scope.scope} value={scope.scope}>
-									{scope.label}
-								</option>
+					{/* Revision tabs */}
+					{props.revisions.length > 0 && (
+						<div className="flex items-center">
+							{props.revisions.map((rev) => (
+								<button
+									key={rev.id}
+									onClick={() => props.onSelectRevision(rev.revisionNumber)}
+									className={`relative px-2 py-1 text-xs transition ${
+										rev.revisionNumber === props.selectedRevisionNumber
+											? "bg-accent/15 text-accent font-medium"
+											: "text-white/40 hover:text-white/60 hover:bg-white/5"
+									}`}
+								>
+									Rev {rev.revisionNumber}
+									{rev.revisionNumber === props.activeRevisionNumber && (
+										<span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
+									)}
+								</button>
 							))}
-					</select>
+						</div>
+					)}
+					{/* Diff mode toggle */}
+					<div className="flex border border-surface-border">
+						<button
+							onClick={() => props.onSetDiffMode("incremental")}
+							className={`px-2 py-1 text-xs transition ${
+								props.diffMode === "incremental"
+									? "bg-accent/15 text-accent"
+									: "bg-surface-2 text-white/40 hover:text-white/60"
+							}`}
+						>
+							Incremental
+						</button>
+						<button
+							onClick={() => props.onSetDiffMode("cumulative")}
+							className={`px-2 py-1 text-xs transition ${
+								props.diffMode === "cumulative"
+									? "bg-accent/15 text-accent"
+									: "bg-surface-2 text-white/40 hover:text-white/60"
+							}`}
+						>
+							Cumulative
+						</button>
+					</div>
 					<button
 						onClick={() =>
 							setViewType((current) => (current === "split" ? "unified" : "split"))
@@ -504,39 +566,65 @@ export function DiffPane(props: {
 					<span className="text-state-applied">+{props.diff.stats.additions}</span>
 					<span className="text-state-error">-{props.diff.stats.deletions}</span>
 				</div>
+				{/* Action buttons */}
 				<div className="mt-2 flex gap-1.5">
-					{currentRoundState === "aligned" ? (
-						<button
-							onClick={props.onApplyAlignedChanges}
-							className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
-						>
-							<CheckCircle2 className="h-3 w-3" />
-							Apply agreed changes
-						</button>
-					) : currentRoundState === "awaiting_user" ? (
-						<button
-							onClick={props.onMarkAligned}
-							className="flex items-center gap-1 bg-state-review px-2.5 py-1 text-xs font-medium text-black"
-						>
-							<CheckCircle2 className="h-3 w-3" />
-							Mark aligned
-						</button>
-					) : currentRoundState === "submitted" || currentRoundState === "awaiting_agent" ? (
-						<button
-							disabled
-							className="flex items-center gap-1 bg-accent/50 px-2.5 py-1 text-xs font-medium text-black/60 cursor-not-allowed"
-						>
-							<Loader2 className="h-3 w-3 animate-spin" />
-							Processing review…
-						</button>
+					{revisionState === "approved" ? (
+						<>
+							<button
+								onClick={props.onApplyRevision}
+								className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
+							>
+								<Play className="h-3 w-3" />
+								Apply
+							</button>
+							{props.session?.mode === "worktree" && (
+								<button
+									onClick={props.onApplyAndMerge}
+									className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
+								>
+									<GitMerge className="h-3 w-3" />
+									Apply & Merge
+								</button>
+							)}
+						</>
 					) : (
-						<button
-							onClick={props.onSubmitReview}
-							className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
-						>
-							<Send className="h-3 w-3" />
-							Send review
-						</button>
+						<>
+							{revisionState === "discussing" && (
+								<button
+									disabled
+									className="flex items-center gap-1 bg-accent/50 px-2.5 py-1 text-xs font-medium text-black/60 cursor-not-allowed"
+								>
+									<Loader2 className="h-3 w-3 animate-spin" />
+									Processing…
+								</button>
+							)}
+							{revisionState === "active" && hasDraftComments && (
+								<button
+									onClick={props.onPublishComments}
+									className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
+								>
+									<Send className="h-3 w-3" />
+									Publish Comments
+								</button>
+							)}
+							{revisionState === "resolved" && hasAddressThis && (
+								<button
+									onClick={props.onStartNextRevision}
+									className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
+								>
+									<Play className="h-3 w-3" />
+									Start Next Revision
+								</button>
+							)}
+							{/* Approve is always available (except when already approved) */}
+							<button
+								onClick={props.onApprove}
+								className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
+							>
+								<CheckCircle2 className="h-3 w-3" />
+								Approve
+							</button>
+						</>
 					)}
 				</div>
 			</div>

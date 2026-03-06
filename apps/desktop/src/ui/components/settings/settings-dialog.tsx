@@ -182,25 +182,12 @@ export function SettingsDialog(props: {
 
 							<Tabs.Content value="review" className="space-y-0">
 								<SettingField
-									label="Freeze writes"
-									description="Block mutating tools while review is active."
+									label="Write freeze"
+									description="Mutating tools are always blocked during review discussion."
 								>
-									<label className="inline-flex items-center gap-2 text-sm text-white/60">
-										<input
-											type="checkbox"
-											checked={
-												props.settings?.alwaysFreezeWritesDuringReview ?? true
-											}
-											onChange={(event) =>
-												void props.onUpdate({
-													alwaysFreezeWritesDuringReview:
-														event.target.checked,
-												})
-											}
-											className="accent-accent"
-										/>
-										Always freeze writes during review
-									</label>
+									<span className="text-sm text-white/40">
+										Writes are automatically frozen during discussion
+									</span>
 								</SettingField>
 							</Tabs.Content>
 

@@ -5,16 +5,16 @@ import type {
 	CommentAnchor,
 	CommentMessageView,
 	CommentThreadView,
-	DiffScope,
-	DiffScopeSummary,
+	DiffMode,
 	DiffSnapshotView,
 	GitStatusView,
 	ProjectSummary,
-	ReviewRoundView,
+	RevisionView,
 	SessionHydration,
 	SessionInspectorView,
 	SessionStreamEvent,
 	SessionSummary,
+	ThreadResolution,
 	ToastMessage,
 } from "./models";
 
@@ -94,12 +94,8 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				params: { sessionId: string; text: string };
 				response: void;
 			};
-			listDiffScopes: {
-				params: { sessionId: string };
-				response: DiffScopeSummary[];
-			};
-			buildDiff: {
-				params: { sessionId: string; scope: DiffScope };
+			buildRevisionDiff: {
+				params: { sessionId: string; revisionNumber: number; mode: DiffMode };
 				response: DiffSnapshotView;
 			};
 			createThread: {
@@ -118,23 +114,31 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				response: CommentMessageView;
 			};
 			resolveThread: {
-				params: { threadId: string };
+				params: { threadId: string; resolution: ThreadResolution };
 				response: void;
 			};
 			reopenThread: {
 				params: { threadId: string };
 				response: void;
 			};
-			submitReview: {
+			publishComments: {
 				params: { sessionId: string };
-				response: ReviewRoundView;
+				response: RevisionView;
 			};
-			markAligned: {
-				params: { reviewRoundId: string };
+			startNextRevision: {
+				params: { sessionId: string };
+				response: RevisionView;
+			};
+			approveRevision: {
+				params: { sessionId: string };
 				response: void;
 			};
-			applyAlignedChanges: {
-				params: { reviewRoundId: string };
+			applyRevision: {
+				params: { sessionId: string };
+				response: void;
+			};
+			applyAndMerge: {
+				params: { sessionId: string };
 				response: void;
 			};
 			createManualCheckpoint: {
@@ -177,11 +181,11 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 		messages: {
 			sessionEvent: SessionStreamEvent;
 			sessionSummaryUpdated: SessionSummary;
-			reviewRoundUpdated: ReviewRoundView;
+			revisionUpdated: RevisionView;
 			threadUpdated: CommentThreadView;
 			diffInvalidated: {
 				sessionId: string;
-				scope?: DiffScope;
+				revisionNumber?: number;
 			};
 			terminalData: {
 				terminalId: string;

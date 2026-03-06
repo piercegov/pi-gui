@@ -2,8 +2,7 @@ import { Utils } from "electrobun/bun";
 import type {
 	AppSettings,
 	CheckpointSummaryView,
-	DiffScope,
-	DiffScopeSummary,
+	DiffMode,
 	DiffSnapshotView,
 	GitStatusView,
 	SessionHydration,
@@ -42,12 +41,6 @@ type SessionRow = {
 	unresolved_comment_count: number;
 };
 
-type TurnRow = {
-	id: string;
-	checkpoint_before_id: string | null;
-	checkpoint_after_id: string | null;
-};
-
 export class SessionService {
 	constructor(
 		private readonly db: AppDb,
@@ -77,7 +70,7 @@ export class SessionService {
 					select count(*)
 					from comment_threads ct
 					where ct.session_id = s.id
-					  and ct.status in ('open', 'agent_replied', 'needs_user', 'aligned')
+					  and ct.status in ('open', 'agent_replied', 'needs_user')
 				) as unresolved_comment_count
 			from sessions s
 			where s.id = ?
@@ -138,7 +131,7 @@ export class SessionService {
 					select count(*)
 					from comment_threads ct
 					where ct.session_id = s.id
-					  and ct.status in ('open', 'agent_replied', 'needs_user', 'aligned')
+					  and ct.status in ('open', 'agent_replied', 'needs_user')
 				) as unresolved_comment_count
 			from sessions s
 			where s.project_id = ?
@@ -356,18 +349,26 @@ export class SessionService {
 		const row = await this.ensureRuntime(sessionId);
 		const project = this.getProjectOrThrow(row.project_id);
 		await this.refreshGitStatus(sessionId);
-		if (row.review_state === "pending") {
-			this.review.ensureDraftRound(sessionId);
-		}
 		const session = (await this.getSessionSummary(sessionId))!;
-		const diffScopes = await this.listDiffScopes(sessionId);
-		const initialDiffScope =
-			diffScopes.find((scope) => scope.available && scope.scope === "session_changes")
-				?.scope ??
-			diffScopes.find((scope) => scope.available)?.scope;
-		const currentDiff = initialDiffScope
-			? await this.buildDiff(sessionId, initialDiffScope)
-			: undefined;
+		const revisions = this.review.listRevisions(sessionId);
+		const activeRevisionNumber = this.review.getActiveRevisionNumber(sessionId);
+
+		// Build initial diff: latest revision's cumulative diff, or session_changes
+		let currentDiff: DiffSnapshotView | undefined;
+		if (activeRevisionNumber !== undefined) {
+			try {
+				currentDiff = await this.review.buildRevisionDiff(sessionId, activeRevisionNumber, "incremental");
+			} catch {
+				// Ignore diff build failures
+			}
+		} else {
+			try {
+				currentDiff = await this.buildSessionDiff(sessionId);
+			} catch {
+				// Ignore diff build failures
+			}
+		}
+
 		const checkpointRecords = this.checkpoints.listCheckpoints(sessionId);
 		const checkpointViews: CheckpointSummaryView[] = checkpointRecords.map((cp) => ({
 			id: cp.id,
@@ -384,14 +385,37 @@ export class SessionService {
 			conversation: this.runtime.getConversation(sessionId),
 			toolActivity: this.runtime.getToolActivity(sessionId),
 			checkpoints: checkpointViews,
-			reviewRounds: this.review.listReviewRounds(sessionId),
-			activeReviewRoundId: this.review.getActiveReviewRoundId(sessionId),
-			diffScopes,
+			revisions,
+			activeRevisionNumber,
 			currentDiff: currentDiff ?? undefined,
 			appSettings: this.settings.getAppSettings(),
 			supportsEmbeddedTerminal: process.platform !== "win32",
 			piConfig: this.runtime.getPiConfigSummary(sessionId),
 		};
+	}
+
+	private async buildSessionDiff(sessionId: string): Promise<DiffSnapshotView | undefined> {
+		const row = this.getSessionRow(sessionId);
+		if (!row) return undefined;
+		const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
+		if (!baseline?.gitTree) return undefined;
+		const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, baseline.gitTree);
+		return this.checkpoints.storeDiffSnapshot({
+			sessionId,
+			scope: "session_changes",
+			title: "Session changes",
+			description: "Changes from the session baseline to the current working state",
+			fromLabel: "Baseline",
+			toLabel: "Working tree",
+			patch: diff.patch,
+			stats: diff.stats,
+			fromCheckpointId: baseline.id,
+			toRef: diff.toTree,
+		});
+	}
+
+	async buildRevisionDiff(sessionId: string, revisionNumber: number, mode: DiffMode) {
+		return this.review.buildRevisionDiff(sessionId, revisionNumber, mode);
 	}
 
 	async getSessionInspector(sessionId: string): Promise<SessionInspectorView> {
@@ -501,7 +525,7 @@ export class SessionService {
 			parentCheckpointId: checkpointId,
 		});
 		await this.refreshGitStatus(sessionId);
-		this.messenger.diffInvalidated({ sessionId, scope: "session_changes" });
+		this.messenger.diffInvalidated({ sessionId });
 		this.messenger.toast({
 			id: crypto.randomUUID(),
 			title: "Checkpoint restored",
@@ -544,263 +568,6 @@ export class SessionService {
 			gitTree: checkpoint.gitTree,
 			parentCheckpointId: checkpoint.parentCheckpointId,
 		} satisfies CheckpointSummaryView;
-	}
-
-	private async resolveCheckpointPair(
-		sessionId: string,
-		scope: DiffScope,
-		row: SessionRow,
-	): Promise<{
-		title: string;
-		description: string;
-		fromLabel: string;
-		toLabel: string;
-		diff:
-			| {
-					patch: string;
-					stats: DiffSnapshotView["stats"];
-					files: DiffSnapshotView["files"];
-					fromCheckpointId?: string;
-					toCheckpointId?: string;
-					fromRef?: string;
-					toRef?: string;
-				}
-			| undefined;
-	}> {
-		if (scope === "staged") {
-			const diff = await this.git.stagedDiff(row.cwd_path);
-			return {
-				title: "Staged",
-				description: "Git staged changes",
-				fromLabel: "Index",
-				toLabel: "Staged",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-				},
-			};
-		}
-		if (scope === "unstaged") {
-			const diff = await this.git.unstagedDiff(row.cwd_path);
-			return {
-				title: "Unstaged",
-				description: "Git unstaged changes",
-				fromLabel: "Index",
-				toLabel: "Working tree",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-				},
-			};
-		}
-		if (scope === "branch_vs_base" && row.base_ref) {
-			const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, row.base_ref);
-			return {
-				title: "Branch vs base",
-				description: "Current working state against the selected base ref",
-				fromLabel: row.base_ref,
-				toLabel: "Working tree",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-					fromRef: row.base_ref,
-					toRef: diff.toTree,
-				},
-			};
-		}
-		if (scope === "session_changes") {
-			const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
-			if (!baseline?.gitTree) return { title: "", description: "", fromLabel: "", toLabel: "", diff: undefined };
-			const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, baseline.gitTree);
-			return {
-				title: "Session changes",
-				description: "Changes from the session baseline to the current working state",
-				fromLabel: "Baseline",
-				toLabel: "Working tree",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-					fromCheckpointId: baseline.id,
-					toRef: diff.toTree,
-				},
-			};
-		}
-		if (scope === "last_turn_changes") {
-			const pair = this.checkpoints.getLatestTurnPair(sessionId);
-			if (!pair?.checkpoint_before_id || !pair.checkpoint_after_id) {
-				return { title: "", description: "", fromLabel: "", toLabel: "", diff: undefined };
-			}
-			const before = this.checkpoints.getCheckpoint(pair.checkpoint_before_id);
-			const after = this.checkpoints.getCheckpoint(pair.checkpoint_after_id);
-			if (!before?.gitTree || !after?.gitTree) {
-				return { title: "", description: "", fromLabel: "", toLabel: "", diff: undefined };
-			}
-			const diff = await this.git.diffBetweenRefs(
-				row.cwd_path,
-				before.gitTree,
-				after.gitTree,
-			);
-			return {
-				title: "Last turn changes",
-				description: "Diff for the most recent completed turn",
-				fromLabel: "Turn start",
-				toLabel: "Turn end",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-					fromCheckpointId: before.id,
-					toCheckpointId: after.id,
-				},
-			};
-		}
-		if (scope === "review_round_changes") {
-			const start = this.checkpoints.getLatestCheckpoint(sessionId, "review_start");
-			if (!start?.gitTree) {
-				return { title: "", description: "", fromLabel: "", toLabel: "", diff: undefined };
-			}
-			const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, start.gitTree);
-			return {
-				title: "Review round changes",
-				description: "Changes since the active review round started",
-				fromLabel: "Review start",
-				toLabel: "Working tree",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-					fromCheckpointId: start.id,
-					toRef: diff.toTree,
-				},
-			};
-		}
-		if (scope === "since_alignment") {
-			const start = this.checkpoints.getLatestCheckpoint(sessionId, "alignment");
-			if (!start?.gitTree) {
-				return { title: "", description: "", fromLabel: "", toLabel: "", diff: undefined };
-			}
-			const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, start.gitTree);
-			return {
-				title: "Since alignment",
-				description: "Changes since the last explicit alignment checkpoint",
-				fromLabel: "Alignment",
-				toLabel: "Working tree",
-				diff: {
-					patch: diff.patch,
-					stats: diff.stats,
-					files: diff.files,
-					fromCheckpointId: start.id,
-					toRef: diff.toTree,
-				},
-			};
-		}
-		return {
-			title: "",
-			description: "",
-			fromLabel: "",
-			toLabel: "",
-			diff: undefined,
-		};
-	}
-
-	async listDiffScopes(sessionId: string): Promise<DiffScopeSummary[]> {
-		const row = this.getSessionRow(sessionId);
-		if (!row) throw new Error("Session not found.");
-		const hasBaseline = Boolean(
-			this.checkpoints.getLatestCheckpoint(sessionId, "baseline"),
-		);
-		const hasTurnPair = Boolean(this.checkpoints.getLatestTurnPair(sessionId));
-		const hasReviewStart = Boolean(
-			this.checkpoints.getLatestCheckpoint(sessionId, "review_start"),
-		);
-		const hasAlignment = Boolean(
-			this.checkpoints.getLatestCheckpoint(sessionId, "alignment"),
-		);
-		return [
-			{
-				scope: "session_changes",
-				label: "Session changes",
-				description: "Baseline to working tree",
-				available: hasBaseline,
-				reasonUnavailable: hasBaseline ? undefined : "No baseline checkpoint yet.",
-			},
-			{
-				scope: "last_turn_changes",
-				label: "Last turn",
-				description: "Most recent turn checkpoint pair",
-				available: hasTurnPair,
-				reasonUnavailable: hasTurnPair ? undefined : "No completed turn yet.",
-			},
-			{
-				scope: "review_round_changes",
-				label: "Review round",
-				description: "Review start to working tree",
-				available: hasReviewStart,
-				reasonUnavailable: hasReviewStart
-					? undefined
-					: "No submitted review round yet.",
-			},
-			{
-				scope: "since_alignment",
-				label: "Since alignment",
-				description: "Alignment checkpoint to working tree",
-				available: hasAlignment,
-				reasonUnavailable: hasAlignment
-					? undefined
-					: "No alignment checkpoint yet.",
-			},
-			{
-				scope: "branch_vs_base",
-				label: "Branch vs base",
-				description: "Base ref to working tree",
-				available: Boolean(row.base_ref),
-				reasonUnavailable: row.base_ref ? undefined : "No base ref configured.",
-			},
-			{
-				scope: "staged",
-				label: "Staged",
-				description: "Git index diff",
-				available: true,
-			},
-			{
-				scope: "unstaged",
-				label: "Unstaged",
-				description: "Working tree diff",
-				available: true,
-			},
-		];
-	}
-
-	async buildDiff(sessionId: string, scope: DiffScope) {
-		const row = this.getSessionRow(sessionId);
-		if (!row) throw new Error("Session not found.");
-		const resolved = await this.resolveCheckpointPair(sessionId, scope, row);
-		if (!resolved.diff) {
-			throw new Error(`Diff scope "${scope}" is not available yet.`);
-		}
-		const snapshot = this.checkpoints.storeDiffSnapshot({
-			sessionId,
-			scope,
-			title: resolved.title,
-			description: resolved.description,
-			fromLabel: resolved.fromLabel,
-			toLabel: resolved.toLabel,
-			patch: resolved.diff.patch,
-			stats: resolved.diff.stats,
-			fromCheckpointId: resolved.diff.fromCheckpointId,
-			toCheckpointId: resolved.diff.toCheckpointId,
-			fromRef: resolved.diff.fromRef,
-			toRef: resolved.diff.toRef,
-		});
-		if (!snapshot) {
-			throw new Error("Failed to persist diff snapshot.");
-		}
-		await this.review.reanchorThreads(sessionId, snapshot);
-		return snapshot;
 	}
 
 	async onTurnStart(sessionId: string, turnIndex: number, event: AgentSessionEvent) {
@@ -884,11 +651,6 @@ export class SessionService {
 				});
 			}
 		}
-		const turn = this.db.get<TurnRow>(
-			"select id, checkpoint_before_id, checkpoint_after_id from turns where session_id = ? and turn_index = ?",
-			sessionId,
-			safeTurnIndex,
-		);
 		this.db.run(
 			`
 			update turns
@@ -907,12 +669,13 @@ export class SessionService {
 				.changedFilesCount ?? 0,
 		);
 		if (changedFiles > 0) {
+			// Ensure a revision exists for review
+			this.review.ensureActiveRevision(sessionId);
 			this.db.run(
-				"update sessions set review_state = 'pending', status = 'waiting_for_review', last_activity_at = ? where id = ?",
+				"update sessions set review_state = 'reviewing', status = 'reviewing', last_activity_at = ? where id = ?",
 				Date.now(),
 				sessionId,
 			);
-			this.review.ensureDraftRound(sessionId);
 		} else {
 			this.db.run(
 				"update sessions set status = 'idle', last_activity_at = ? where id = ?",
@@ -920,17 +683,7 @@ export class SessionService {
 				sessionId,
 			);
 		}
-		if (turn?.checkpoint_before_id && checkpoint?.id) {
-			this.messenger.diffInvalidated({
-				sessionId,
-				scope: "last_turn_changes",
-			});
-		}
-		this.messenger.diffInvalidated({
-			sessionId,
-			scope: "session_changes",
-		});
-		await this.review.markRoundAppliedForSession(sessionId);
+		this.messenger.diffInvalidated({ sessionId });
 		await this.refreshAndPublishSession(sessionId);
 	}
 

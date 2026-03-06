@@ -12,15 +12,16 @@ import {
 	checkpointSummarySchema,
 	commentMessageSchema,
 	commentThreadSchema,
-	diffScopeSummarySchema,
+	diffModeSchema,
 	diffSnapshotSchema,
 	gitStatusSchema,
 	projectSummarySchema,
-	reviewRoundSchema,
+	revisionSchema,
 	sessionInspectorSchema,
 	sessionHydrationSchema,
 	sessionStreamEventSchema,
 	sessionSummarySchema,
+	threadResolutionSchema,
 	toastSchema,
 } from "../shared/zod-schemas";
 import { AppDb } from "./services/db";
@@ -74,8 +75,8 @@ const messenger: HostMessenger = {
 	sessionSummaryUpdated(summary) {
 		sendToView("sessionSummaryUpdated", sessionSummarySchema.parse(summary));
 	},
-	reviewRoundUpdated(round) {
-		sendToView("reviewRoundUpdated", reviewRoundSchema.parse(round));
+	revisionUpdated(revision) {
+		sendToView("revisionUpdated", revisionSchema.parse(revision));
 	},
 	threadUpdated(thread) {
 		sendToView("threadUpdated", commentThreadSchema.parse(thread));
@@ -98,7 +99,7 @@ const messenger: HostMessenger = {
 };
 
 const checkpoints = new CheckpointService(db, git);
-const review = new ReviewService(db, settings, checkpoints, messenger);
+const review = new ReviewService(db, checkpoints, git, messenger);
 const runtime = new PiRuntimeManager(messenger);
 const sessions = new SessionService(
 	db,
@@ -120,12 +121,10 @@ review.setSessionRefresh(async (sessionId) => {
 });
 runtime.setReviewBridge({
 	isFreezeActive: (sessionId) => review.isFreezeActive(sessionId),
-	getActiveReviewRoundId: (sessionId) => review.getActiveReviewRoundId(sessionId),
+	getActiveRevisionId: (sessionId) => review.getActiveRevisionId(sessionId),
 	handleReviewReply: async (sessionId, payload) =>
 		review.handleAgentReviewReply(sessionId, payload),
 	buildReviewMarkdown: (reviewRoundId) => review.buildReviewMarkdown(reviewRoundId),
-	buildAlignedOutcome: (reviewRoundId) =>
-		review.buildAlignedOutcome(reviewRoundId),
 	getSessionIdByReviewRound: (reviewRoundId) =>
 		review.getSessionIdByReviewRound(reviewRoundId),
 });
@@ -152,17 +151,10 @@ const promptParamsSchema = z.object({
 	sessionId: z.string(),
 	text: z.string(),
 });
-const buildDiffParamsSchema = z.object({
+const buildRevisionDiffParamsSchema = z.object({
 	sessionId: z.string(),
-	scope: z.enum([
-		"session_changes",
-		"last_turn_changes",
-		"review_round_changes",
-		"since_alignment",
-		"branch_vs_base",
-		"staged",
-		"unstaged",
-	]),
+	revisionNumber: z.number().int(),
+	mode: diffModeSchema,
 });
 const createThreadParamsSchema = z.object({
 	reviewRoundId: z.string(),
@@ -183,7 +175,10 @@ const replyThreadParamsSchema = z.object({
 	threadId: z.string(),
 	body: z.string(),
 });
-const reviewRoundIdSchema = z.object({ reviewRoundId: z.string() });
+const resolveThreadParamsSchema = z.object({
+	threadId: z.string(),
+	resolution: threadResolutionSchema,
+});
 const updateSettingsSchema = appSettingsSchema.partial();
 const terminalOpenSchema = sessionIdSchema;
 const terminalResizeSchema = z.object({
@@ -278,19 +273,12 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 				const parsed = promptParamsSchema.parse(params);
 				await sessions.followUpSession(parsed.sessionId, parsed.text);
 			},
-			listDiffScopes: async (params: unknown) =>
-				z
-					.array(diffScopeSummarySchema)
-					.parse(
-						await sessions.listDiffScopes(sessionIdSchema.parse(params).sessionId),
-					),
-			buildDiff: async (params: unknown) =>
-				diffSnapshotSchema.parse(
-					await sessions.buildDiff(...(() => {
-						const parsed = buildDiffParamsSchema.parse(params);
-						return [parsed.sessionId, parsed.scope] as const;
-					})()),
-				),
+			buildRevisionDiff: async (params: unknown) => {
+				const parsed = buildRevisionDiffParamsSchema.parse(params);
+				return diffSnapshotSchema.parse(
+					await sessions.buildRevisionDiff(parsed.sessionId, parsed.revisionNumber, parsed.mode),
+				);
+			},
 			createThread: async (params: unknown) => {
 				const parsed = createThreadParamsSchema.parse(params);
 				return commentThreadSchema.parse(
@@ -304,22 +292,30 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 				);
 			},
 			resolveThread: async (params: unknown) => {
-				await review.resolveThread(replyThreadParamsSchema.pick({ threadId: true }).parse(params).threadId);
+				const parsed = resolveThreadParamsSchema.parse(params);
+				await review.resolveThread(parsed.threadId, parsed.resolution);
 			},
 			reopenThread: async (params: unknown) => {
-				await review.reopenThread(replyThreadParamsSchema.pick({ threadId: true }).parse(params).threadId);
+				await replyThreadParamsSchema.pick({ threadId: true }).parse(params);
+				const parsed = z.object({ threadId: z.string() }).parse(params);
+				await review.reopenThread(parsed.threadId);
 			},
-			submitReview: async (params: unknown) =>
-				reviewRoundSchema.parse(
-					await review.submitReview(sessionIdSchema.parse(params).sessionId),
+			publishComments: async (params: unknown) =>
+				revisionSchema.parse(
+					await review.publishComments(sessionIdSchema.parse(params).sessionId),
 				),
-			markAligned: async (params: unknown) => {
-				await review.markAligned(reviewRoundIdSchema.parse(params).reviewRoundId);
+			startNextRevision: async (params: unknown) =>
+				revisionSchema.parse(
+					await review.startNextRevision(sessionIdSchema.parse(params).sessionId),
+				),
+			approveRevision: async (params: unknown) => {
+				await review.approveRevision(sessionIdSchema.parse(params).sessionId);
 			},
-			applyAlignedChanges: async (params: unknown) => {
-				await review.applyAlignedChanges(
-					reviewRoundIdSchema.parse(params).reviewRoundId,
-				);
+			applyRevision: async (params: unknown) => {
+				await review.applyRevision(sessionIdSchema.parse(params).sessionId);
+			},
+			applyAndMerge: async (params: unknown) => {
+				await review.applyAndMerge(sessionIdSchema.parse(params).sessionId);
 			},
 			createManualCheckpoint: async (params: unknown) =>
 				checkpointSummarySchema.parse(
@@ -383,8 +379,7 @@ ApplicationMenu.setApplicationMenu([
 		label: "View",
 		submenu: [
 			{ role: "reload" },
-			{ role: "toggleDevTools" },
-			{ role: "togglefullscreen" },
+			{ role: "toggleFullScreen" },
 		],
 	},
 	{

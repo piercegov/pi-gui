@@ -21,6 +21,7 @@ export const checkpointKindSchema = z.enum([
 	"post_turn",
 	"review_start",
 	"alignment",
+	"revision",
 	"manual",
 ]);
 
@@ -74,6 +75,18 @@ export const projectSummarySchema = z.object({
 	metadata: z.record(z.string(), z.unknown()),
 });
 
+export const threadResolutionSchema = z.enum(["no_changes", "address_this"]);
+
+export const diffModeSchema = z.enum(["incremental", "cumulative"]);
+
+export const revisionStateSchema = z.enum([
+	"active",
+	"discussing",
+	"resolved",
+	"superseded",
+	"approved",
+]);
+
 export const sessionSummarySchema = z.object({
 	id: z.string(),
 	projectId: z.string(),
@@ -89,9 +102,7 @@ export const sessionSummarySchema = z.object({
 		"idle",
 		"starting",
 		"running",
-		"waiting_for_review",
-		"discussion_open",
-		"aligned",
+		"reviewing",
 		"applying",
 		"completed",
 		"error",
@@ -99,13 +110,10 @@ export const sessionSummarySchema = z.object({
 	]),
 	reviewState: z.enum([
 		"none",
-		"pending",
-		"open",
-		"awaiting_agent",
-		"awaiting_user",
-		"aligned",
-		"applied",
-		"obsolete",
+		"reviewing",
+		"discussing",
+		"resolved",
+		"approved",
 	]),
 	lastActivityAt: z.number().int(),
 	createdAt: z.number().int(),
@@ -151,11 +159,10 @@ export const commentThreadSchema = z.object({
 		"open",
 		"agent_replied",
 		"needs_user",
-		"aligned",
 		"resolved",
 		"outdated",
-		"applied",
 	]),
+	resolution: threadResolutionSchema.optional(),
 	createdAt: z.number().int(),
 	updatedAt: z.number().int(),
 	resolvedAt: z.number().int().optional(),
@@ -164,26 +171,18 @@ export const commentThreadSchema = z.object({
 	messages: z.array(commentMessageSchema),
 });
 
-export const reviewRoundSchema = z.object({
+export const revisionSchema = z.object({
 	id: z.string(),
 	sessionId: z.string(),
-	seq: z.number().int(),
-	state: z.enum([
-		"draft",
-		"submitted",
-		"awaiting_agent",
-		"awaiting_user",
-		"aligned",
-		"applying",
-		"applied",
-		"obsolete",
-	]),
+	revisionNumber: z.number().int(),
+	state: revisionStateSchema,
 	startedAt: z.number().int(),
-	submittedAt: z.number().int().optional(),
-	alignedAt: z.number().int().optional(),
-	appliedAt: z.number().int().optional(),
-	freezeWrites: z.boolean(),
+	checkpointId: z.string().optional(),
+	baselineCheckpointId: z.string().optional(),
+	approvedAt: z.number().int().optional(),
 	summaryMarkdown: z.string().optional(),
+	addressThisCount: z.number().int(),
+	noChangesCount: z.number().int(),
 	unresolvedCount: z.number().int(),
 	threads: z.array(commentThreadSchema),
 	metadata: z.record(z.string(), z.unknown()),
@@ -191,21 +190,10 @@ export const reviewRoundSchema = z.object({
 
 export const diffScopeSchema = z.enum([
 	"session_changes",
-	"last_turn_changes",
-	"review_round_changes",
-	"since_alignment",
 	"branch_vs_base",
 	"staged",
 	"unstaged",
 ]);
-
-export const diffScopeSummarySchema = z.object({
-	scope: diffScopeSchema,
-	label: z.string(),
-	description: z.string(),
-	available: z.boolean(),
-	reasonUnavailable: z.string().optional(),
-});
 
 export const diffSnapshotSchema = z.object({
 	id: z.string(),
@@ -221,6 +209,8 @@ export const diffSnapshotSchema = z.object({
 	stats: diffStatsSchema,
 	files: z.array(diffFileStatSchema),
 	createdAt: z.number().int(),
+	revisionNumber: z.number().int().optional(),
+	diffMode: diffModeSchema.optional(),
 });
 
 export const transcriptAttachmentSchema = z.object({
@@ -269,7 +259,6 @@ export const piConfigSummarySchema = z.object({
 
 export const appSettingsSchema = z.object({
 	defaultDiffView: z.enum(["split", "unified"]),
-	alwaysFreezeWritesDuringReview: z.boolean(),
 	defaultSessionMode: z.enum(["worktree", "local"]),
 	defaultEditor: z.string(),
 	terminalShell: z.string(),
@@ -286,9 +275,8 @@ export const sessionHydrationSchema = z.object({
 	conversation: z.array(conversationEntrySchema),
 	toolActivity: z.array(toolActivitySchema),
 	checkpoints: z.array(checkpointSummarySchema),
-	reviewRounds: z.array(reviewRoundSchema),
-	activeReviewRoundId: z.string().optional(),
-	diffScopes: z.array(diffScopeSummarySchema),
+	revisions: z.array(revisionSchema),
+	activeRevisionNumber: z.number().int().optional(),
 	currentDiff: diffSnapshotSchema.optional(),
 	appSettings: appSettingsSchema,
 	supportsEmbeddedTerminal: z.boolean(),
