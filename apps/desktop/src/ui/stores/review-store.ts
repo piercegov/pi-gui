@@ -23,6 +23,7 @@ type ReviewState = {
 	setSelectedRevision: (n: number) => void;
 	setDiffMode: (mode: DiffMode) => void;
 	buildRevisionDiff: (revisionNumber: number, mode: DiffMode) => Promise<void>;
+	buildSessionDiffFallback: (sessionId: string) => Promise<void>;
 	updateRevision: (revision: RevisionView) => void;
 	updateThread: (thread: CommentThreadView) => void;
 	createThread: (anchor: CommentAnchor, body: string) => Promise<void>;
@@ -82,6 +83,21 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 			if (get()._diffRequestId !== requestId) return; // superseded
 			set({
 				currentDiff: diff,
+				diffStale: false,
+			});
+		} catch {
+			// Ignore errors
+		}
+	},
+	async buildSessionDiffFallback(sessionId) {
+		if (sessionId !== get().sessionId) return;
+		const requestId = get()._diffRequestId + 1;
+		set({ _diffRequestId: requestId });
+		try {
+			const diff = await rpc.request.buildSessionDiff({ sessionId });
+			if (get()._diffRequestId !== requestId) return; // superseded
+			set({
+				currentDiff: diff ?? undefined,
 				diffStale: false,
 			});
 		} catch {
@@ -174,6 +190,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		const selectedRev = get().selectedRevisionNumber ?? get().activeRevisionNumber;
 		if (selectedRev !== undefined) {
 			void get().buildRevisionDiff(selectedRev, get().diffMode);
+		} else {
+			void get().buildSessionDiffFallback(sessionId);
 		}
 	},
 }));

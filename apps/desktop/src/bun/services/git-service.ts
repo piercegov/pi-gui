@@ -240,9 +240,9 @@ export class GitService {
 	async diffBetweenRefs(cwd: string, fromRef: string, toRef: string) {
 		return this.diffWithArgs(
 			cwd,
-			["diff", "--patch", "--find-renames", "--find-copies", "-U3", fromRef, toRef],
-			["diff", "--name-status", "--find-renames", "--find-copies", fromRef, toRef],
-			["diff", "--numstat", "--find-renames", "--find-copies", fromRef, toRef],
+			["diff", "--no-ext-diff", "--patch", "--find-renames", "--find-copies", "-U3", fromRef, toRef],
+			["diff", "--no-ext-diff", "--name-status", "--find-renames", "--find-copies", fromRef, toRef],
+			["diff", "--no-ext-diff", "--numstat", "--find-renames", "--find-copies", fromRef, toRef],
 		);
 	}
 
@@ -257,18 +257,18 @@ export class GitService {
 	async stagedDiff(cwd: string) {
 		return this.diffWithArgs(
 			cwd,
-			["diff", "--cached", "--patch", "--find-renames", "--find-copies", "-U3"],
-			["diff", "--cached", "--name-status", "--find-renames", "--find-copies"],
-			["diff", "--cached", "--numstat", "--find-renames", "--find-copies"],
+			["diff", "--no-ext-diff", "--cached", "--patch", "--find-renames", "--find-copies", "-U3"],
+			["diff", "--no-ext-diff", "--cached", "--name-status", "--find-renames", "--find-copies"],
+			["diff", "--no-ext-diff", "--cached", "--numstat", "--find-renames", "--find-copies"],
 		);
 	}
 
 	async unstagedDiff(cwd: string) {
 		return this.diffWithArgs(
 			cwd,
-			["diff", "--patch", "--find-renames", "--find-copies", "-U3"],
-			["diff", "--name-status", "--find-renames", "--find-copies"],
-			["diff", "--numstat", "--find-renames", "--find-copies"],
+			["diff", "--no-ext-diff", "--patch", "--find-renames", "--find-copies", "-U3"],
+			["diff", "--no-ext-diff", "--name-status", "--find-renames", "--find-copies"],
+			["diff", "--no-ext-diff", "--numstat", "--find-renames", "--find-copies"],
 		);
 	}
 

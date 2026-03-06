@@ -394,7 +394,7 @@ export class SessionService {
 		};
 	}
 
-	private async buildSessionDiff(sessionId: string): Promise<DiffSnapshotView | undefined> {
+	async buildSessionDiff(sessionId: string): Promise<DiffSnapshotView | undefined> {
 		const row = this.getSessionRow(sessionId);
 		if (!row) return undefined;
 		const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");

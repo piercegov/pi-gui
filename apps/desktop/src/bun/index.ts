@@ -279,6 +279,11 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 					await sessions.buildRevisionDiff(parsed.sessionId, parsed.revisionNumber, parsed.mode),
 				);
 			},
+			buildSessionDiff: async (params: unknown) => {
+				const parsed = sessionIdSchema.parse(params);
+				const result = await sessions.buildSessionDiff(parsed.sessionId);
+				return result ? diffSnapshotSchema.parse(result) : null;
+			},
 			createThread: async (params: unknown) => {
 				const parsed = createThreadParamsSchema.parse(params);
 				return commentThreadSchema.parse(

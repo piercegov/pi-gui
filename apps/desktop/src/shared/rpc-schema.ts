@@ -98,6 +98,10 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				params: { sessionId: string; revisionNumber: number; mode: DiffMode };
 				response: DiffSnapshotView;
 			};
+			buildSessionDiff: {
+				params: { sessionId: string };
+				response: DiffSnapshotView | null;
+			};
 			createThread: {
 				params: {
 					reviewRoundId: string;
