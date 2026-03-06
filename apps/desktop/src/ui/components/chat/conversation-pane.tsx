@@ -186,7 +186,7 @@ function ToolInvocationCard(props: { entry: ConversationEntryView }) {
 			<button
 				type="button"
 				onClick={() => setOpen((prev) => !prev)}
-				className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-white/[0.03]"
+				className="flex w-full items-center gap-2 px-2 py-2 text-left transition hover:bg-white/[0.03]"
 			>
 				<Wrench className="h-3.5 w-3.5 shrink-0 text-white/30" />
 				<span className="mono text-xs font-medium text-white/70">
