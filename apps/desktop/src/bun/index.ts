@@ -24,6 +24,7 @@ import {
 	threadResolutionSchema,
 	toastSchema,
 } from "../shared/zod-schemas";
+import { resolveShellEnvironment } from "./services/shell-env";
 import { AppDb } from "./services/db";
 import { GitService } from "./services/git-service";
 import { ProjectService } from "./services/project-service";
@@ -50,6 +51,12 @@ async function getMainViewUrl(): Promise<string> {
 	}
 	return "views://mainview/index.html";
 }
+
+// Resolve the user's full shell environment before initializing any services.
+// macOS GUI apps receive a minimal PATH from launchd; this captures the real
+// PATH from the user's login shell so tools like git, zoxide, starship, and
+// Homebrew binaries are available to all spawned processes.
+await resolveShellEnvironment();
 
 const db = new AppDb();
 const git = new GitService();
