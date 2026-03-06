@@ -1,15 +1,12 @@
+import { Terminal, Plus, Settings, ChevronRight } from "lucide-react";
 import type { SessionSummary } from "@shared/models";
 
-function statusTone(status: SessionSummary["status"]) {
-	if (status === "running") return "bg-[color:var(--state-running)]";
-	if (status === "waiting_for_review" || status === "discussion_open") {
-		return "bg-[color:var(--state-review)]";
-	}
-	if (status === "error") return "bg-[color:var(--state-error)]";
-	if (status === "completed" || status === "aligned") {
-		return "bg-[color:var(--state-applied)]";
-	}
-	return "bg-black/25";
+function statusColor(status: SessionSummary["status"]) {
+	if (status === "running") return "bg-state-running";
+	if (status === "waiting_for_review" || status === "discussion_open") return "bg-state-review";
+	if (status === "error") return "bg-state-error";
+	if (status === "completed" || status === "aligned") return "bg-state-applied";
+	return "bg-white/20";
 }
 
 export function TitleBar(props: {
@@ -20,51 +17,48 @@ export function TitleBar(props: {
 	supportsEmbeddedTerminal: boolean;
 }) {
 	return (
-		<header className="relative flex h-14 items-center justify-between border-b border-black/10 px-4">
+		<header className="relative flex h-11 shrink-0 items-center justify-between border-b border-surface-border bg-surface-1 px-3">
 			<div className="electrobun-webkit-app-region-drag absolute inset-0" />
-			<div className="electrobun-webkit-app-region-drag relative z-10 flex items-center gap-3">
-				<div className="rounded-full border border-black/10 bg-white/70 px-3 py-1 text-xs uppercase tracking-[0.18em] text-black/60">
-					Pi GUI
-				</div>
-				<div className="text-sm text-black/70">
-					Native workflow for Pi sessions, diffs, and review rounds.
-				</div>
-			</div>
 
-			<div className="electrobun-webkit-app-region-drag pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-black/10 bg-white/70 px-4 py-1.5 text-sm">
+			{/* Left: traffic-light spacer + branding */}
+			<div className="electrobun-webkit-app-region-drag relative z-10 flex items-center gap-3 pl-16">
+				<span className="text-xs font-semibold tracking-wide text-white/40">Pi GUI</span>
 				{props.session ? (
-					<span className="inline-flex items-center gap-2">
-						<span
-							className={`inline-block h-2.5 w-2.5 rounded-full ${statusTone(props.session.status)}`}
-						/>
-						<span className="font-medium">{props.session.displayName}</span>
-						<span className="text-black/45">{props.session.mode}</span>
-						<span className="text-black/45">{props.session.reviewState}</span>
-					</span>
-				) : (
-					<span className="text-black/50">No session open</span>
-				)}
+					<>
+						<ChevronRight className="h-3 w-3 text-white/20" />
+						<span className="inline-flex items-center gap-1.5 text-xs text-white/70">
+							<span className={`inline-block h-1.5 w-1.5 rounded-full ${statusColor(props.session.status)}`} />
+							{props.session.displayName}
+						</span>
+						<span className="text-2xs text-white/30">{props.session.mode}</span>
+					</>
+				) : null}
 			</div>
 
-			<div className="relative z-10 flex items-center gap-2">
+			{/* Right: actions */}
+			<div className="relative z-10 flex items-center gap-1">
 				<button
 					onClick={props.onNewSession}
-					className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-sm text-black/75 transition hover:bg-white"
+					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80"
+					title="New session (Cmd+N)"
 				>
-					New session
+					<Plus className="h-3.5 w-3.5" />
+					New thread
 				</button>
 				<button
 					onClick={props.onToggleTerminal}
 					disabled={!props.supportsEmbeddedTerminal}
-					className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-sm text-black/75 transition hover:bg-white"
+					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80 disabled:opacity-30"
+					title="Toggle terminal (Cmd+J)"
 				>
-					{props.supportsEmbeddedTerminal ? "Terminal" : "Terminal unavailable"}
+					<Terminal className="h-3.5 w-3.5" />
 				</button>
 				<button
 					onClick={props.onOpenSettings}
-					className="rounded-full border border-black/10 bg-[color:var(--accent)] px-3 py-1.5 text-sm text-white transition hover:opacity-90"
+					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80"
+					title="Settings (Cmd+,)"
 				>
-					Settings
+					<Settings className="h-3.5 w-3.5" />
 				</button>
 			</div>
 		</header>

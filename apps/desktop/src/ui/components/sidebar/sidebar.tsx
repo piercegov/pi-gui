@@ -1,15 +1,23 @@
+import { Plus, FolderOpen, Trash2, ExternalLink, Eye, MoreHorizontal, Archive, Pencil, ArchiveRestore } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { ProjectSummary, SessionSummary } from "@shared/models";
 
 function sessionStatusColor(status: SessionSummary["status"]) {
-	if (status === "running") return "bg-[color:var(--state-running)]";
-	if (status === "waiting_for_review" || status === "discussion_open") {
-		return "bg-[color:var(--state-review)]";
-	}
-	if (status === "error") return "bg-[color:var(--state-error)]";
-	if (status === "completed" || status === "aligned") {
-		return "bg-[color:var(--state-applied)]";
-	}
-	return "bg-black/20";
+	if (status === "running") return "bg-state-running";
+	if (status === "waiting_for_review" || status === "discussion_open") return "bg-state-review";
+	if (status === "error") return "bg-state-error";
+	if (status === "completed" || status === "aligned") return "bg-state-applied";
+	return "bg-white/20";
+}
+
+function relativeTime(ts: number) {
+	const diff = Date.now() - ts;
+	const mins = Math.floor(diff / 60000);
+	if (mins < 1) return "just now";
+	if (mins < 60) return `${mins}m`;
+	const hours = Math.floor(mins / 60);
+	if (hours < 24) return `${hours}h`;
+	return `${Math.floor(hours / 24)}d`;
 }
 
 export function Sidebar(props: {
@@ -28,72 +36,182 @@ export function Sidebar(props: {
 	onArchiveSession: (session: SessionSummary, archived: boolean) => void;
 	onOpenSettings: () => void;
 }) {
+	const selectedProject = props.projects.find((p) => p.id === props.selectedProjectId);
+
 	return (
-		<aside className="flex h-full flex-col border-r border-black/10 bg-white/45">
-			<div className="border-b border-black/10 px-4 py-4">
-				<div className="mb-3 flex items-center justify-between">
-					<h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-black/50">
-						Projects
-					</h2>
+		<aside className="flex h-full flex-col bg-surface-0 border-r border-surface-border">
+			{/* Project header */}
+			<div className="flex items-center justify-between border-b border-surface-border px-3 py-2.5">
+				{selectedProject ? (
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium text-white/90 transition hover:bg-white/5">
+							<FolderOpen className="h-3.5 w-3.5 text-white/40" />
+							{selectedProject.name}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								className="min-w-[200px] rounded-lg border border-surface-border bg-surface-2 p-1 shadow-xl"
+								sideOffset={4}
+								align="start"
+							>
+								{props.projects.map((project) => (
+									<DropdownMenu.Item
+										key={project.id}
+										className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/80 outline-none hover:bg-white/8"
+										onSelect={() => props.onSelectProject(project.id)}
+									>
+										<FolderOpen className="h-3.5 w-3.5 text-white/40" />
+										{project.name}
+										{project.id === props.selectedProjectId ? (
+											<span className="ml-auto text-accent text-xs">●</span>
+										) : null}
+									</DropdownMenu.Item>
+								))}
+								<DropdownMenu.Separator className="my-1 h-px bg-surface-border" />
+								<DropdownMenu.Item
+									className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/60 outline-none hover:bg-white/8"
+									onSelect={props.onAddProject}
+								>
+									<Plus className="h-3.5 w-3.5" />
+									Add project
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+				) : (
 					<button
 						onClick={props.onAddProject}
-						className="rounded-full border border-black/10 bg-white/70 px-2.5 py-1 text-xs text-black/70 transition hover:bg-white"
+						className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-white/60 transition hover:bg-white/5"
 					>
-						Add
+						<Plus className="h-3.5 w-3.5" />
+						Add project
 					</button>
-				</div>
-				<div className="space-y-2">
-					{props.projects.map((project) => {
-						const selected = project.id === props.selectedProjectId;
+				)}
+
+				{selectedProject ? (
+					<div className="flex items-center gap-0.5">
+						<button
+							onClick={() => props.onOpenProjectInEditor(selectedProject.id)}
+							className="rounded-md p-1 text-white/40 transition hover:bg-white/8 hover:text-white/60"
+							title="Open in editor"
+						>
+							<ExternalLink className="h-3.5 w-3.5" />
+						</button>
+						<button
+							onClick={() => props.onRevealProject(selectedProject.id)}
+							className="rounded-md p-1 text-white/40 transition hover:bg-white/8 hover:text-white/60"
+							title="Reveal in Finder"
+						>
+							<Eye className="h-3.5 w-3.5" />
+						</button>
+						<button
+							onClick={() => props.onRemoveProject(selectedProject.id)}
+							className="rounded-md p-1 text-white/40 transition hover:bg-white/8 hover:text-red-400/80"
+							title="Remove project"
+						>
+							<Trash2 className="h-3.5 w-3.5" />
+						</button>
+					</div>
+				) : null}
+			</div>
+
+			{/* New thread button */}
+			<div className="px-3 py-2">
+				<button
+					onClick={props.onCreateSession}
+					className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-surface-border bg-surface-2 px-3 py-1.5 text-xs text-white/70 transition hover:bg-surface-3 hover:text-white/90"
+				>
+					<Plus className="h-3.5 w-3.5" />
+					New thread
+				</button>
+			</div>
+
+			{/* Threads section label */}
+			<div className="flex items-center justify-between px-4 pb-1 pt-2">
+				<span className="text-2xs font-medium uppercase tracking-wider text-white/30">
+					Threads
+				</span>
+				<span className="text-2xs text-white/20">{props.sessions.length}</span>
+			</div>
+
+			{/* Session list */}
+			<div className="flex-1 overflow-auto px-2 pb-2">
+				<div className="space-y-px">
+					{props.sessions.map((session) => {
+						const selected = session.id === props.selectedSessionId;
 						return (
 							<div
-								key={project.id}
-								className={`rounded-2xl border px-3 py-3 transition ${
+								key={session.id}
+								className={`group relative rounded-lg transition ${
 									selected
-										? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
-										: "border-black/5 bg-white/60 hover:bg-white/85"
+										? "bg-white/10"
+										: session.archivedAt
+											? "opacity-50 hover:bg-white/4"
+											: "hover:bg-white/5"
 								}`}
 							>
 								<button
-									onClick={() => props.onSelectProject(project.id)}
-									className="flex w-full items-start justify-between text-left"
+									onClick={() => props.onOpenSession(session.id)}
+									className="w-full px-2.5 py-2 text-left"
 								>
-									<div>
-										<div className="text-sm font-semibold">{project.name}</div>
-										<div className="mt-1 text-xs text-black/50">
-											{project.sessionCount} sessions
-											{project.isGit ? " • git" : " • local"}
-										</div>
+									<div className="flex items-center gap-2">
+										<span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${sessionStatusColor(session.status)}`} />
+										<span className={`truncate text-sm ${selected ? "text-white" : "text-white/75"}`}>
+											{session.displayName}
+										</span>
+										<span className="ml-auto shrink-0 text-2xs text-white/25">
+											{relativeTime(session.lastActivityAt)}
+										</span>
 									</div>
-									<div className="rounded-full bg-black/5 px-2 py-1 text-[11px] text-black/55">
-										{project.defaultBaseRef ?? "HEAD"}
+									<div className="mt-0.5 flex items-center gap-2 pl-3.5 text-2xs text-white/30">
+										<span>{session.changedFilesCount} files</span>
+										{session.unresolvedCommentCount > 0 ? (
+											<span className="text-state-review">{session.unresolvedCommentCount} comments</span>
+										) : null}
+										{session.archivedAt ? (
+											<span className="text-white/20">archived</span>
+										) : null}
 									</div>
 								</button>
-								<div className="mt-3 flex flex-wrap gap-2">
-									<button
-										onClick={props.onCreateSession}
-										className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-black/60 transition hover:bg-white"
-									>
-										New session
-									</button>
-									<button
-										onClick={() => props.onOpenProjectInEditor(project.id)}
-										className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-black/60 transition hover:bg-white"
-									>
-										Open editor
-									</button>
-									<button
-										onClick={() => props.onRevealProject(project.id)}
-										className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-black/60 transition hover:bg-white"
-									>
-										Reveal
-									</button>
-									<button
-										onClick={() => props.onRemoveProject(project.id)}
-										className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-[color:var(--state-error)] transition hover:bg-white"
-									>
-										Remove
-									</button>
+
+								{/* Context menu */}
+								<div className="absolute right-1 top-1.5 opacity-0 transition group-hover:opacity-100">
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger className="rounded-md p-1 text-white/30 hover:bg-white/10 hover:text-white/60">
+											<MoreHorizontal className="h-3.5 w-3.5" />
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Portal>
+											<DropdownMenu.Content
+												className="min-w-[160px] rounded-lg border border-surface-border bg-surface-2 p-1 shadow-xl"
+												sideOffset={4}
+												align="end"
+											>
+												<DropdownMenu.Item
+													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/70 outline-none hover:bg-white/8"
+													onSelect={() => props.onRenameSession(session)}
+												>
+													<Pencil className="h-3.5 w-3.5" />
+													Rename
+												</DropdownMenu.Item>
+												<DropdownMenu.Item
+													className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-white/70 outline-none hover:bg-white/8"
+													onSelect={() => props.onArchiveSession(session, !session.archivedAt)}
+												>
+													{session.archivedAt ? (
+														<>
+															<ArchiveRestore className="h-3.5 w-3.5" />
+															Restore
+														</>
+													) : (
+														<>
+															<Archive className="h-3.5 w-3.5" />
+															Archive
+														</>
+													)}
+												</DropdownMenu.Item>
+											</DropdownMenu.Content>
+										</DropdownMenu.Portal>
+									</DropdownMenu.Root>
 								</div>
 							</div>
 						);
@@ -101,92 +219,13 @@ export function Sidebar(props: {
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-auto px-4 py-4">
-				<div className="mb-3 flex items-center justify-between">
-					<h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-black/50">
-						Sessions
-					</h2>
-					<div className="text-xs text-black/45">{props.sessions.length}</div>
-				</div>
-				<div className="space-y-2">
-					{props.sessions.map((session) => {
-						const selected = session.id === props.selectedSessionId;
-						return (
-							<div
-								key={session.id}
-								className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-									selected
-										? "border-black/20 bg-[#2e2a25] text-white"
-										: session.archivedAt
-											? "border-black/5 bg-white/45 text-black/60"
-											: "border-black/5 bg-white/60 text-black hover:bg-white/85"
-								}`}
-							>
-								<button
-									onClick={() => props.onOpenSession(session.id)}
-									className="w-full text-left"
-								>
-									<div className="flex items-center justify-between">
-										<div className="flex items-center gap-2">
-											<span
-												className={`inline-block h-2.5 w-2.5 rounded-full ${sessionStatusColor(session.status)}`}
-											/>
-											<span className="text-sm font-medium">
-												{session.displayName}
-											</span>
-										</div>
-										<div className="flex items-center gap-2">
-											{session.archivedAt ? (
-												<span className="rounded-full border border-current/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] opacity-70">
-													archived
-												</span>
-											) : null}
-											<span className="rounded-full border border-current/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] opacity-70">
-												{session.mode}
-											</span>
-										</div>
-									</div>
-									<div className="mt-2 flex flex-wrap gap-2 text-[11px] opacity-75">
-										<span>{session.changedFilesCount} changed</span>
-										<span>{session.unresolvedCommentCount} comments</span>
-										<span>
-											{new Date(session.lastActivityAt).toLocaleTimeString([], {
-												hour: "numeric",
-												minute: "2-digit",
-											})}
-										</span>
-									</div>
-								</button>
-								{selected ? (
-									<div className="mt-3 flex flex-wrap gap-2">
-										<button
-											onClick={() => props.onRenameSession(session)}
-											className="rounded-full border border-current/10 px-2.5 py-1 text-[11px] opacity-80 transition hover:bg-white/10"
-										>
-											Rename
-										</button>
-										<button
-											onClick={() =>
-												props.onArchiveSession(session, !session.archivedAt)
-											}
-											className="rounded-full border border-current/10 px-2.5 py-1 text-[11px] opacity-80 transition hover:bg-white/10"
-										>
-											{session.archivedAt ? "Restore" : "Archive"}
-										</button>
-									</div>
-								) : null}
-							</div>
-						);
-					})}
-				</div>
-			</div>
-
-			<div className="border-t border-black/10 p-4">
+			{/* Bottom: Settings */}
+			<div className="border-t border-surface-border px-3 py-2">
 				<button
 					onClick={props.onOpenSettings}
-					className="w-full rounded-2xl border border-black/10 bg-white/70 px-4 py-2 text-sm font-medium text-black/70 transition hover:bg-white"
+					className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-white/40 transition hover:bg-white/5 hover:text-white/60"
 				>
-					App settings
+					Settings
 				</button>
 			</div>
 		</aside>

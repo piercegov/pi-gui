@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { getChangeKey, Diff, Hunk, parseDiff } from "react-diff-view";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
@@ -26,35 +27,35 @@ function InlineThread(props: {
 }) {
 	const [replyBody, setReplyBody] = useState("");
 	return (
-		<div className="space-y-3 rounded-2xl border border-black/10 bg-white/90 p-3 shadow-panel">
+		<div className="space-y-2 border-l-2 border-accent/30 bg-surface-2 p-3">
 			{props.threads.map((thread) => (
-				<div key={thread.id} className="rounded-xl border border-black/5 bg-black/[0.02] p-3">
-					<div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-black/45">
-						<span>{thread.status.replace(/_/g, " ")}</span>
-						<span>{thread.filePath}</span>
+				<div key={thread.id} className="border-b border-surface-border pb-2 last:border-b-0">
+					<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
+						<span className="uppercase tracking-wider">{thread.status.replace(/_/g, " ")}</span>
+						<span className="mono">{thread.filePath}</span>
 					</div>
-					<div className="space-y-2">
+					<div className="space-y-1.5">
 						{thread.messages.map((message) => (
-							<div key={message.id} className="rounded-xl bg-white px-3 py-2">
-								<div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-black/40">
+							<div key={message.id} className="bg-surface-1 px-3 py-2">
+								<div className="mb-1 text-2xs uppercase tracking-wider text-white/25">
 									{message.authorType}
 								</div>
 								<MarkdownRenderer markdown={message.bodyMarkdown} />
 							</div>
 						))}
 					</div>
-					<div className="mt-3 flex flex-wrap gap-2">
+					<div className="mt-2 flex gap-1.5">
 						{thread.status !== "resolved" ? (
 							<button
 								onClick={() => props.onResolve(thread.id)}
-								className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-black/60"
+								className="px-2 py-0.5 text-2xs text-white/40 transition hover:bg-white/5 hover:text-white/60"
 							>
 								Resolve
 							</button>
 						) : (
 							<button
 								onClick={() => props.onReopen(thread.id)}
-								className="rounded-full border border-black/10 px-2.5 py-1 text-[11px] text-black/60"
+								className="px-2 py-0.5 text-2xs text-white/40 transition hover:bg-white/5 hover:text-white/60"
 							>
 								Reopen
 							</button>
@@ -63,22 +64,22 @@ function InlineThread(props: {
 				</div>
 			))}
 
-			<div className="rounded-xl border border-black/5 bg-white p-3">
+			<div className="pt-1">
 				<textarea
 					value={replyBody}
 					onChange={(event) => setReplyBody(event.target.value)}
 					rows={2}
-					placeholder="Reply inline..."
-					className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm outline-none"
+					placeholder="Reply..."
+					className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-sm text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
 				/>
-				<div className="mt-2 flex justify-end">
+				<div className="mt-1.5 flex justify-end">
 					<button
 						onClick={async () => {
 							if (!replyBody.trim() || props.threads.length === 0) return;
 							await props.onReply(props.threads[0].id, replyBody);
 							setReplyBody("");
 						}}
-						className="rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-sm text-white"
+						className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
 					>
 						Reply
 					</button>
@@ -137,6 +138,7 @@ export function DiffPane(props: {
 	const [draftAnchor, setDraftAnchor] = useState<CommentAnchor | null>(null);
 	const [draftBody, setDraftBody] = useState("");
 	const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+	const [inspectorOpen, setInspectorOpen] = useState(false);
 
 	const parsedFiles = useMemo(
 		() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
@@ -160,28 +162,38 @@ export function DiffPane(props: {
 	const rowVirtualizer = useVirtualizer({
 		count: filteredFiles.length,
 		getScrollElement: () => fileListParentRef.current,
-		estimateSize: () => 42,
+		estimateSize: () => 36,
 	});
 
 	const currentRoundState = props.activeReviewRound?.state;
 
 	if (!props.diff) {
 		return (
-			<section className="grid h-full grid-cols-[280px_minmax(0,1fr)] border-l border-black/10 bg-[#fbf8f2]">
-				<div className="overflow-auto border-r border-black/10 px-3 py-3">
-					<SessionInspector
-						session={props.session}
-						inspector={props.inspector}
-						onCreateManualCheckpoint={props.onCreateManualCheckpoint}
-						onRepairWorktree={props.onRepairWorktree}
-					/>
+			<section className="flex h-full flex-col border-l border-surface-border bg-surface-0">
+				<div className="flex items-center border-b border-surface-border px-3 py-2">
+					<button
+						onClick={() => setInspectorOpen(!inspectorOpen)}
+						className="flex items-center gap-1 text-xs text-white/40 transition hover:text-white/60"
+					>
+						<Info className="h-3 w-3" />
+						Inspector
+					</button>
 				</div>
-				<div className="flex items-center justify-center">
-					<div className="max-w-md text-center text-black/55">
-						<div className="text-xs uppercase tracking-[0.18em]">Diff</div>
-						<p className="mt-3 text-sm">
-							Create or open a session with Git changes to review turn-scoped and
-							session-scoped diffs.
+				{inspectorOpen ? (
+					<div className="overflow-auto border-b border-surface-border px-3 py-3">
+						<SessionInspector
+							session={props.session}
+							inspector={props.inspector}
+							onCreateManualCheckpoint={props.onCreateManualCheckpoint}
+							onRepairWorktree={props.onRepairWorktree}
+						/>
+					</div>
+				) : null}
+				<div className="flex flex-1 items-center justify-center">
+					<div className="text-center text-white/30">
+						<GitCompare className="mx-auto mb-2 h-8 w-8 text-white/15" />
+						<p className="text-sm">
+							Open a session with changes to view diffs.
 						</p>
 					</div>
 				</div>
@@ -190,15 +202,16 @@ export function DiffPane(props: {
 	}
 
 	return (
-		<section className="flex h-full flex-col border-l border-black/10 bg-[#fbf8f2]">
-			<div className="border-b border-black/10 px-4 py-4">
-				<div className="flex flex-wrap items-center gap-2">
+		<section className="flex h-full flex-col border-l border-surface-border bg-surface-0">
+			{/* Toolbar */}
+			<div className="border-b border-surface-border px-3 py-2">
+				<div className="flex flex-wrap items-center gap-1.5">
 					<select
 						value={props.diff.scope}
 						onChange={(event) =>
 							void props.onSelectScope(event.target.value as DiffScope)
 						}
-						className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm"
+						className="border border-surface-border bg-surface-2 px-2 py-1 text-xs text-white/70 outline-none"
 					>
 						{props.diffScopes
 							.filter((scope) => scope.available)
@@ -212,76 +225,98 @@ export function DiffPane(props: {
 						onClick={() =>
 							setViewType((current) => (current === "split" ? "unified" : "split"))
 						}
-						className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm"
+						className="flex items-center gap-1 border border-surface-border bg-surface-2 px-2 py-1 text-xs text-white/50 transition hover:text-white/70"
 					>
-						{viewType === "split" ? "Unified" : "Split"}
+						{viewType === "split" ? (
+							<><Rows3 className="h-3 w-3" /> Unified</>
+						) : (
+							<><SplitSquareHorizontal className="h-3 w-3" /> Split</>
+						)}
 					</button>
-					<input
-						value={search}
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Filter files"
-						className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm"
-					/>
-					<label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm">
+					<div className="relative">
+						<Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/25" />
+						<input
+							value={search}
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder="Filter files"
+							className="border border-surface-border bg-surface-2 py-1 pl-6 pr-2 text-xs text-white/70 placeholder:text-white/20 outline-none"
+						/>
+					</div>
+					<label className="flex items-center gap-1.5 text-xs text-white/40">
 						<input
 							type="checkbox"
 							checked={unresolvedOnly}
 							onChange={(event) => setUnresolvedOnly(event.target.checked)}
+							className="accent-accent"
 						/>
-						Unresolved only
+						Unresolved
 					</label>
+					<button
+						onClick={() => setInspectorOpen(!inspectorOpen)}
+						className={`flex items-center gap-1 border border-surface-border px-2 py-1 text-xs transition hover:text-white/70 ${inspectorOpen ? "bg-accent/15 text-accent" : "bg-surface-2 text-white/40"}`}
+					>
+						<Info className="h-3 w-3" />
+						Inspector
+					</button>
 					{props.diffStale ? (
-						<div className="rounded-full bg-[color:var(--state-review)]/15 px-3 py-1.5 text-sm text-[color:var(--state-review)]">
-							Diff is stale
+						<div className="flex items-center gap-1 text-xs text-state-review">
+							<AlertTriangle className="h-3 w-3" />
+							Stale
 						</div>
 					) : null}
 				</div>
-				<div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-black/55">
-					<span className="font-medium text-black">{props.diff.title}</span>
-					<span>{props.diff.fromLabel}</span>
-					<span>→</span>
-					<span>{props.diff.toLabel}</span>
+				<div className="mt-1.5 flex flex-wrap items-center gap-3 text-2xs text-white/35">
+					<span className="font-medium text-white/60">{props.diff.title}</span>
+					<span>{props.diff.fromLabel} → {props.diff.toLabel}</span>
 					<span>{props.diff.stats.filesChanged} files</span>
-					<span>+{props.diff.stats.additions}</span>
-					<span>-{props.diff.stats.deletions}</span>
+					<span className="text-state-applied">+{props.diff.stats.additions}</span>
+					<span className="text-state-error">-{props.diff.stats.deletions}</span>
 				</div>
-				<div className="mt-4 flex flex-wrap gap-2">
+				<div className="mt-2 flex gap-1.5">
 					{currentRoundState === "aligned" ? (
 						<button
 							onClick={props.onApplyAlignedChanges}
-							className="rounded-full bg-[color:var(--state-applied)] px-4 py-1.5 text-sm text-white"
+							className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
 						>
+							<CheckCircle2 className="h-3 w-3" />
 							Apply agreed changes
 						</button>
 					) : currentRoundState === "awaiting_user" ? (
 						<button
 							onClick={props.onMarkAligned}
-							className="rounded-full bg-[color:var(--state-review)] px-4 py-1.5 text-sm text-white"
+							className="flex items-center gap-1 bg-state-review px-2.5 py-1 text-xs font-medium text-black"
 						>
+							<CheckCircle2 className="h-3 w-3" />
 							Mark aligned
 						</button>
 					) : (
 						<button
 							onClick={props.onSubmitReview}
-							className="rounded-full bg-[color:var(--accent)] px-4 py-1.5 text-sm text-white"
+							className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
 						>
+							<Send className="h-3 w-3" />
 							Send review
 						</button>
 					)}
 				</div>
 			</div>
 
-			<div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)]">
+			<div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
+				{/* File list + optional Inspector sidebar */}
 				<div
 					ref={fileListParentRef}
-					className="border-r border-black/10 overflow-auto px-3 py-3"
+					className="overflow-auto border-r border-surface-border px-2 py-2"
 				>
-					<SessionInspector
-						session={props.session}
-						inspector={props.inspector}
-						onCreateManualCheckpoint={props.onCreateManualCheckpoint}
-						onRepairWorktree={props.onRepairWorktree}
-					/>
+					{inspectorOpen ? (
+						<div className="mb-2 border-b border-surface-border pb-2">
+							<SessionInspector
+								session={props.session}
+								inspector={props.inspector}
+								onCreateManualCheckpoint={props.onCreateManualCheckpoint}
+								onRepairWorktree={props.onRepairWorktree}
+							/>
+						</div>
+					) : null}
 					<div
 						style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
 					>
@@ -292,12 +327,16 @@ export function DiffPane(props: {
 							return (
 								<div
 									key={item.key}
-									className="absolute left-0 right-0 rounded-xl border border-black/5 bg-white/70 px-3 py-2 text-sm"
+									className="absolute left-0 right-0 border-b border-surface-border px-2.5 py-1.5 text-xs hover:bg-white/3"
 									style={{ transform: `translateY(${item.start}px)` }}
 								>
-									<div className="font-medium">{path}</div>
-									<div className="mt-1 text-[11px] text-black/45">
-										{stats.additions} additions • {stats.deletions} deletions
+									<div className="truncate font-medium text-white/70 mono text-2xs">
+										{path}
+									</div>
+									<div className="mt-0.5 text-2xs text-white/25">
+										<span className="text-state-applied">+{stats.additions}</span>
+										{" "}
+										<span className="text-state-error">-{stats.deletions}</span>
 									</div>
 								</div>
 							);
@@ -305,17 +344,18 @@ export function DiffPane(props: {
 					</div>
 				</div>
 
-				<div className="diff-shell overflow-auto px-4 py-4">
-					<div className="space-y-6">
+				{/* Diff content */}
+				<div className="diff-shell overflow-auto px-3 py-3">
+					<div className="space-y-4">
 						{filteredFiles.map((file) => {
 							const path = file.newPath || file.oldPath;
 							return (
-								<div key={`${file.oldRevision}-${file.newRevision}`} className="rounded-3xl border border-black/10 bg-white/75 p-3">
-									<div className="mb-3 flex items-center justify-between rounded-2xl bg-black/[0.03] px-3 py-2">
-										<div className="mono text-sm">{path}</div>
-										<div className="text-[11px] uppercase tracking-[0.14em] text-black/45">
+								<div key={`${file.oldRevision}-${file.newRevision}`}>
+									<div className="mb-1.5 flex items-center justify-between border-b border-surface-border pb-1.5">
+										<span className="mono text-xs text-white/60">{path}</span>
+										<span className="text-2xs uppercase tracking-wider text-white/25">
 											{file.type}
-										</div>
+										</span>
 									</div>
 									<Diff
 										viewType={viewType}
@@ -359,7 +399,7 @@ export function DiffPane(props: {
 													if (threads.length === 0 && !isDraft) return [key, null];
 													return [
 														key,
-														<div className="py-2">
+														<div className="py-1.5">
 															{threads.length > 0 ? (
 																<InlineThread
 																	threads={threads}
@@ -369,23 +409,23 @@ export function DiffPane(props: {
 																/>
 															) : null}
 															{isDraft ? (
-																<div className="mt-3 rounded-2xl border border-black/10 bg-white p-3 shadow-panel">
+																<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
 																	<textarea
 																		value={draftBody}
 																		onChange={(event) =>
 																			setDraftBody(event.target.value)
 																		}
 																		rows={3}
-																		placeholder="Leave an inline review comment..."
-																		className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm outline-none"
+																		placeholder="Leave a review comment..."
+																		className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-sm text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
 																	/>
-																	<div className="mt-2 flex justify-end gap-2">
+																	<div className="mt-2 flex justify-end gap-1.5">
 																		<button
 																			onClick={() => {
 																				setDraftAnchor(null);
 																				setDraftBody("");
 																			}}
-																			className="rounded-full border border-black/10 px-3 py-1.5 text-sm text-black/60"
+																			className="px-2.5 py-1 text-xs text-white/40 hover:bg-white/5 hover:text-white/60"
 																		>
 																			Cancel
 																		</button>
@@ -399,9 +439,9 @@ export function DiffPane(props: {
 																				setDraftBody("");
 																				setDraftAnchor(null);
 																			}}
-																			className="rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-sm text-white"
+																			className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
 																		>
-																			Add comment
+																			Comment
 																		</button>
 																	</div>
 																</div>

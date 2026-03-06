@@ -1,3 +1,4 @@
+import { ChevronRight, AlertCircle } from "lucide-react";
 import type {
 	CheckpointSummaryView,
 	SessionInspectorView,
@@ -17,27 +18,27 @@ function TreeNode(props: {
 	return (
 		<div>
 			<div
-				className={`rounded-xl border px-3 py-2 ${
+				className={`border-l-2 px-2.5 py-1.5 ${
 					props.node.isCurrent
-						? "border-[color:var(--accent)]/30 bg-[color:var(--accent-soft)]"
-						: "border-black/5 bg-white/75"
+						? "border-accent bg-accent-soft"
+						: "border-transparent hover:bg-white/3"
 				}`}
 				style={{ marginLeft: `${depth * 12}px` }}
 			>
-				<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center justify-between gap-2">
 					<div className="min-w-0">
-						<div className="truncate text-sm font-medium text-black/80">
+						<div className="truncate text-xs text-white/70">
 							{props.node.label ?? props.node.type.replace(/_/g, " ")}
 						</div>
-						<div className="mt-1 text-xs text-black/50">{props.node.summary}</div>
+						<div className="mt-0.5 truncate text-2xs text-white/30">{props.node.summary}</div>
 					</div>
-					<div className="shrink-0 text-[11px] uppercase tracking-[0.14em] text-black/40">
-						{props.node.isCurrent ? "Current" : props.node.type}
-					</div>
+					<span className="shrink-0 text-2xs text-white/20">
+						{props.node.isCurrent ? "current" : props.node.type}
+					</span>
 				</div>
 			</div>
 			{props.node.children.length > 0 ? (
-				<div className="mt-2 space-y-2">
+				<div className="space-y-px">
 					{props.node.children.map((child) => (
 						<TreeNode key={child.id} node={child} depth={depth + 1} />
 					))}
@@ -62,25 +63,24 @@ export function SessionInspector(props: {
 
 	return (
 		<div className="space-y-3 pb-3">
-			<div className="rounded-2xl border border-black/10 bg-white/75 p-3">
-				<div className="flex items-center justify-between gap-3">
-					<div>
-						<div className="text-xs uppercase tracking-[0.18em] text-black/45">
-							Session inspector
-						</div>
-						<div className="mt-1 text-sm font-semibold text-black/80">
-							{props.session.worktreeBranch ?? "Local workspace"}
-						</div>
-					</div>
+			{/* Inspector header */}
+			<div className="border-b border-surface-border pb-2.5">
+				<div className="flex items-center justify-between">
+					<span className="text-2xs font-medium uppercase tracking-wider text-white/30">
+						Inspector
+					</span>
 					<button
 						disabled={!canCheckpoint}
 						onClick={() => void props.onCreateManualCheckpoint()}
-						className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm text-black/65 transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
+						className="text-2xs text-accent/70 transition hover:text-accent disabled:cursor-not-allowed disabled:text-white/15"
 					>
 						Checkpoint
 					</button>
 				</div>
-				<dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-black/55">
+				<div className="mt-1 text-xs font-medium text-white/60">
+					{props.session.worktreeBranch ?? "Local workspace"}
+				</div>
+				<dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-2xs text-white/30">
 					<dt>Mode</dt>
 					<dd className="truncate">{props.session.mode}</dd>
 					<dt>Base</dt>
@@ -89,7 +89,7 @@ export function SessionInspector(props: {
 					<dd className="truncate mono">{props.session.worktreePath ?? props.session.cwdPath}</dd>
 					{props.inspector?.sessionFile ? (
 						<>
-							<dt>Session file</dt>
+							<dt>File</dt>
 							<dd className="truncate mono">{props.inspector.sessionFile}</dd>
 						</>
 					) : null}
@@ -101,11 +101,14 @@ export function SessionInspector(props: {
 					) : null}
 				</dl>
 				{props.inspector?.worktreeMissing ? (
-					<div className="mt-3 flex items-center justify-between rounded-xl border border-[color:var(--state-error)]/20 bg-[color:var(--state-error)]/5 px-3 py-2 text-sm text-[color:var(--state-error)]">
-						<span>Managed worktree is missing.</span>
+					<div className="mt-2 flex items-center justify-between bg-state-error/10 px-2.5 py-1.5 text-xs text-state-error">
+						<span className="flex items-center gap-1.5">
+							<AlertCircle className="h-3 w-3" />
+							Worktree missing
+						</span>
 						<button
 							onClick={() => void props.onRepairWorktree()}
-							className="rounded-full border border-current/20 px-2.5 py-1 text-xs"
+							className="text-2xs underline underline-offset-2"
 						>
 							Repair
 						</button>
@@ -113,53 +116,56 @@ export function SessionInspector(props: {
 				) : null}
 			</div>
 
-			<div className="rounded-2xl border border-black/10 bg-white/70 p-3">
-				<div className="text-xs uppercase tracking-[0.18em] text-black/45">
-					Recent checkpoints
+			{/* Checkpoints */}
+			<div>
+				<div className="mb-1.5 text-2xs font-medium uppercase tracking-wider text-white/30">
+					Checkpoints
 				</div>
-				<div className="mt-3 space-y-2">
+				<div className="space-y-px">
 					{props.inspector?.checkpoints.length ? (
 						props.inspector.checkpoints.slice(0, 8).map((checkpoint) => (
 							<div
 								key={checkpoint.id}
-								className="rounded-xl border border-black/5 bg-white/80 px-3 py-2"
+								className="flex items-center justify-between px-1 py-1 hover:bg-white/3"
 							>
-								<div className="flex items-center justify-between gap-3">
-									<div className="text-sm font-medium text-black/75">
+								<div>
+									<div className="text-xs text-white/50">
 										{checkpointLabel(checkpoint.kind)}
 									</div>
-									<div className="text-[11px] uppercase tracking-[0.14em] text-black/40">
-										{new Date(checkpoint.createdAt).toLocaleTimeString([], {
-											hour: "numeric",
-											minute: "2-digit",
-										})}
+									<div className="truncate mono text-2xs text-white/20">
+										{checkpoint.gitTree ?? checkpoint.gitHead ?? checkpoint.id}
 									</div>
 								</div>
-								<div className="mt-1 truncate mono text-[11px] text-black/45">
-									{checkpoint.gitTree ?? checkpoint.gitHead ?? checkpoint.id}
-								</div>
+								<span className="shrink-0 text-2xs text-white/20">
+									{new Date(checkpoint.createdAt).toLocaleTimeString([], {
+										hour: "numeric",
+										minute: "2-digit",
+									})}
+								</span>
 							</div>
 						))
 					) : (
-						<div className="rounded-xl border border-dashed border-black/10 px-3 py-3 text-sm text-black/45">
-							No checkpoints captured yet.
+						<div className="py-2 text-2xs text-white/20">
+							No checkpoints yet.
 						</div>
 					)}
 				</div>
 			</div>
 
-			<div className="rounded-2xl border border-black/10 bg-white/70 p-3">
-				<div className="text-xs uppercase tracking-[0.18em] text-black/45">
+			{/* Tree */}
+			<div>
+				<div className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-white/30">
+					<ChevronRight className="h-3 w-3" />
 					Session tree
 				</div>
-				<div className="mt-3 max-h-[320px] space-y-2 overflow-auto pr-1">
+				<div className="max-h-[280px] space-y-px overflow-auto">
 					{props.inspector?.tree.length ? (
 						props.inspector.tree.map((node) => (
 							<TreeNode key={node.id} node={node} />
 						))
 					) : (
-						<div className="rounded-xl border border-dashed border-black/10 px-3 py-3 text-sm text-black/45">
-							Tree data will appear after the session starts recording entries.
+						<div className="py-2 text-2xs text-white/20">
+							Tree data appears after recording starts.
 						</div>
 					)}
 				</div>

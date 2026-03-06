@@ -4,8 +4,21 @@ export default {
 	theme: {
 		extend: {
 			fontFamily: {
-				sans: ["'IBM Plex Sans'", "ui-sans-serif", "system-ui"],
-				mono: ["'IBM Plex Mono'", "ui-monospace", "monospace"],
+				sans: [
+					"-apple-system",
+					"BlinkMacSystemFont",
+					"SF Pro Text",
+					"system-ui",
+					"Segoe UI",
+					"sans-serif",
+				],
+				mono: [
+					"SF Mono",
+					"Menlo",
+					"Monaco",
+					"Consolas",
+					"monospace",
+				],
 			},
 			colors: {
 				surface: {
@@ -26,8 +39,8 @@ export default {
 					applied: "var(--state-applied)",
 				},
 			},
-			boxShadow: {
-				panel: "0 16px 40px rgba(7, 16, 28, 0.12)",
+			fontSize: {
+				"2xs": ["0.6875rem", "1rem"],
 			},
 		},
 	},

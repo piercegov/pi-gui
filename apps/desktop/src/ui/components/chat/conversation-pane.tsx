@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Send, Square, CornerDownRight, Zap } from "lucide-react";
 import type { ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 
@@ -35,15 +36,11 @@ export function ConversationPane(props: {
 
 	if (!props.session) {
 		return (
-			<section className="flex h-full items-center justify-center">
-				<div className="surface-panel max-w-lg rounded-[28px] px-8 py-10 text-center">
-					<div className="text-sm uppercase tracking-[0.18em] text-black/45">
-						Conversation
-					</div>
-					<h2 className="mt-3 text-3xl font-semibold">Open a session to start</h2>
-					<p className="mt-3 text-black/60">
-						Projects and sessions stay local. Diff and review state are restored
-						when you reopen a session.
+			<section className="flex h-full items-center justify-center bg-surface-1">
+				<div className="text-center">
+					<div className="text-sm text-white/25">No session open</div>
+					<p className="mt-2 text-sm text-white/40">
+						Select a thread or create a new one to start.
 					</p>
 				</div>
 			</section>
@@ -51,67 +48,78 @@ export function ConversationPane(props: {
 	}
 
 	return (
-		<section className="flex h-full flex-col bg-white/30">
-			<div className="border-b border-black/10 px-6 py-4">
-				<div className="flex flex-wrap items-center gap-2">
-					{badge(props.session).map((item) => (
-						<span
-							key={item}
-							className="rounded-full border border-black/10 bg-white/80 px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-black/55"
-						>
-							{item}
-						</span>
-					))}
-				</div>
-				<div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+		<section className="flex h-full flex-col bg-surface-1">
+			{/* Tool activity bar */}
+			{props.toolActivity.length > 0 ? (
+				<div className="flex gap-px border-b border-surface-border bg-surface-0">
 					{props.toolActivity.slice(0, 4).map((activity) => (
 						<div
 							key={activity.id}
-							className="min-w-[220px] rounded-2xl border border-black/10 bg-white/75 px-3 py-2"
+							className="flex-1 border-r border-surface-border px-3 py-2 last:border-r-0"
 						>
-							<div className="text-xs uppercase tracking-[0.14em] text-black/45">
-								{activity.status}
+							<div className="flex items-center gap-1.5">
+								<span className={`inline-block h-1 w-1 rounded-full ${
+									activity.status === "started" || activity.status === "streaming" ? "bg-state-running animate-pulse" : "bg-white/20"
+								}`} />
+								<span className="mono text-2xs text-white/50">{activity.toolName}</span>
 							</div>
-							<div className="mt-1 mono text-sm font-medium">
-								{activity.toolName}
-							</div>
-							<div className="mt-1 line-clamp-2 text-xs text-black/55">
+							<div className="mt-0.5 truncate text-2xs text-white/30">
 								{activity.outputSnippet || activity.argsSummary}
 							</div>
 						</div>
 					))}
 				</div>
-			</div>
+			) : null}
 
-			<div className="flex-1 overflow-auto px-6 py-5">
-				<div className="mx-auto flex max-w-4xl flex-col gap-4">
-					{props.entries.map((entry) => (
-						<article
-							key={entry.id}
-							className={`rounded-[24px] border px-4 py-3 ${
-								entry.kind === "assistant"
-									? "border-black/10 bg-white/85"
-									: entry.kind === "user"
-										? "ml-12 border-[color:var(--accent)]/20 bg-[color:var(--accent-soft)]"
-										: "border-black/8 bg-white/55"
-							}`}
-						>
-							<div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-black/40">
-								<span>{entry.kind}</span>
-								<span>
-									{new Date(entry.timestamp).toLocaleTimeString([], {
-										hour: "numeric",
-										minute: "2-digit",
-									})}
-								</span>
-							</div>
-							<MarkdownRenderer markdown={entry.markdown} />
-						</article>
-					))}
+			{/* Conversation entries */}
+			<div className="flex-1 overflow-auto">
+				<div className="mx-auto max-w-4xl px-6 py-4">
+					{/* Session badges */}
+					<div className="mb-4 flex flex-wrap items-center gap-1.5">
+						{badge(props.session).map((item) => (
+							<span
+								key={item}
+								className="border border-surface-border bg-surface-2 px-2 py-0.5 text-2xs text-white/40"
+							>
+								{item}
+							</span>
+						))}
+					</div>
+
+					<div className="space-y-1">
+						{props.entries.map((entry) => (
+							<article
+								key={entry.id}
+								className={`border-l-2 px-4 py-3 ${
+									entry.kind === "user"
+										? "border-accent/50 bg-accent-soft"
+										: entry.kind === "assistant"
+											? "border-transparent"
+											: "border-white/5 bg-white/[0.02]"
+								}`}
+							>
+								<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
+									<span className="font-medium uppercase tracking-wider">
+										{entry.kind}
+									</span>
+									<span>
+										{new Date(entry.timestamp).toLocaleTimeString([], {
+											hour: "numeric",
+											minute: "2-digit",
+										})}
+									</span>
+								</div>
+								<div className="text-sm leading-relaxed">
+									<MarkdownRenderer markdown={entry.markdown} />
+								</div>
+							</article>
+						))}
+					</div>
 				</div>
 			</div>
 
-			<div className="border-t border-black/10 px-6 py-5">
+			{/* Input area */}
+			<div className="border-t border-surface-border bg-surface-0 px-4 py-3">
 				<div className="mx-auto max-w-4xl">
 					<textarea
 						value={value}
@@ -122,43 +130,45 @@ export function ConversationPane(props: {
 								void submit(busy ? "followup" : "send");
 							}
 						}}
-						rows={4}
-						placeholder="Ask Pi to inspect, change, or explain the project..."
-						className="w-full rounded-[24px] border border-black/10 bg-white/85 px-4 py-3 text-[15px] outline-none transition focus:border-[color:var(--accent)]"
+						rows={3}
+						placeholder="Ask for follow-up changes..."
+						className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-sm text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
 					/>
-					<div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-						<div className="text-xs text-black/45">
-							{busy
-								? "Steer interrupts after the current tool. Follow-up waits for the current run to end."
-								: "Use Cmd/Ctrl+Enter to send without leaving the keyboard."}
-						</div>
-						<div className="flex flex-wrap gap-2">
+					<div className="mt-2 flex items-center justify-between">
+						<span className="text-2xs text-white/20">
+							{busy ? "Session is running" : "Cmd+Enter to send"}
+						</span>
+						<div className="flex items-center gap-1">
 							{busy ? (
 								<>
 									<button
 										onClick={() => submit("steer")}
-										className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-sm text-black/70 transition hover:bg-white"
+										className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
 									>
+										<Zap className="h-3 w-3" />
 										Steer
 									</button>
 									<button
 										onClick={() => submit("followup")}
-										className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-sm text-black/70 transition hover:bg-white"
+										className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
 									>
+										<CornerDownRight className="h-3 w-3" />
 										Follow-up
 									</button>
 									<button
 										onClick={props.onAbort}
-										className="rounded-full border border-[color:var(--state-error)]/25 bg-white/80 px-3 py-1.5 text-sm text-[color:var(--state-error)] transition hover:bg-white"
+										className="flex items-center gap-1 px-2.5 py-1 text-xs text-state-error/80 transition hover:bg-state-error/10 hover:text-state-error"
 									>
+										<Square className="h-3 w-3" />
 										Abort
 									</button>
 								</>
 							) : null}
 							<button
 								onClick={() => submit("send")}
-								className="rounded-full bg-[color:var(--accent)] px-4 py-1.5 text-sm text-white transition hover:opacity-90"
+								className="flex items-center gap-1 bg-accent px-3 py-1 text-xs font-medium text-black transition hover:brightness-110"
 							>
+								<Send className="h-3 w-3" />
 								Send
 							</button>
 						</div>

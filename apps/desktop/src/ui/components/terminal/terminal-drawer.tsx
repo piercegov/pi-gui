@@ -30,12 +30,13 @@ export function TerminalDrawer(props: {
 			return;
 		}
 		const terminal = new Terminal({
-			fontFamily: "SF Mono, IBM Plex Mono, monospace",
+			fontFamily: "SF Mono, Menlo, Monaco, Consolas, monospace",
 			fontSize: 13,
 			theme: {
-				background: "#f6f2eb",
-				foreground: "#1f1912",
-				cursor: "#0f7b6c",
+				background: "#1a1a1a",
+				foreground: "#e8e8e8",
+				cursor: "#3ddc84",
+				selectionBackground: "rgba(61, 220, 132, 0.2)",
 			},
 		});
 		const fitAddon = new FitAddon();
@@ -73,17 +74,17 @@ export function TerminalDrawer(props: {
 
 	return (
 		<div
-			className={`border-t border-black/10 bg-white/50 transition-[height] ${
+			className={`border-t border-surface-border bg-surface-0 transition-[height] ${
 				props.open ? "h-64" : "h-0 overflow-hidden"
 			}`}
 		>
 			<Tabs.Root defaultValue="terminal" className="flex h-full flex-col">
-				<Tabs.List className="flex gap-2 border-b border-black/10 px-4 py-3">
+				<Tabs.List className="flex gap-px border-b border-surface-border">
 					{["terminal", "tools", "git"].map((value) => (
 						<Tabs.Trigger
 							key={value}
 							value={value}
-							className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-sm text-black/65 data-[state=active]:bg-[color:var(--accent)] data-[state=active]:text-white"
+							className="px-3 py-1.5 text-xs capitalize text-white/40 transition hover:text-white/60 data-[state=active]:border-b data-[state=active]:border-accent data-[state=active]:text-accent"
 						>
 							{value}
 						</Tabs.Trigger>
@@ -93,31 +94,32 @@ export function TerminalDrawer(props: {
 					{props.supported ? (
 						<div ref={terminalRef} className="h-full w-full" />
 					) : (
-						<div className="flex h-full items-center justify-center px-6 text-center text-sm text-black/55">
-							Embedded terminal support is currently unavailable on this platform.
-							Chat, diffs, and review remain fully usable.
+						<div className="flex h-full items-center justify-center text-sm text-white/30">
+							Embedded terminal is unavailable on this platform.
 						</div>
 					)}
 				</Tabs.Content>
-				<Tabs.Content value="tools" className="min-h-0 flex-1 overflow-auto px-4 py-3">
-					<div className="space-y-2">
+				<Tabs.Content value="tools" className="min-h-0 flex-1 overflow-auto px-3 py-2">
+					<div className="space-y-px">
 						{props.toolActivity.map((activity) => (
-							<div key={activity.id} className="rounded-2xl border border-black/10 bg-white/80 px-3 py-2">
-								<div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-black/45">
-									<span>{activity.toolName}</span>
-									<span>{activity.status}</span>
+							<div key={activity.id} className="border-b border-surface-border px-2 py-1.5">
+								<div className="flex items-center justify-between text-2xs text-white/30">
+									<span className="mono">{activity.toolName}</span>
+									<span className={activity.status === "started" || activity.status === "streaming" ? "text-accent" : ""}>
+										{activity.status}
+									</span>
 								</div>
-								<div className="mt-2 mono text-sm">{activity.argsSummary}</div>
+								<div className="mt-0.5 mono text-2xs text-white/40">{activity.argsSummary}</div>
 								{activity.outputSnippet ? (
-									<div className="mt-2 text-xs text-black/55">{activity.outputSnippet}</div>
+									<div className="mt-0.5 text-2xs text-white/20">{activity.outputSnippet}</div>
 								) : null}
 							</div>
 						))}
 					</div>
 				</Tabs.Content>
-				<Tabs.Content value="git" className="min-h-0 flex-1 overflow-auto px-4 py-3">
-					<div className="rounded-2xl border border-dashed border-black/10 bg-white/70 px-4 py-6 text-sm text-black/50">
-						Git output is surfaced through the diff and status panes in this build.
+				<Tabs.Content value="git" className="min-h-0 flex-1 overflow-auto px-3 py-2">
+					<div className="py-4 text-center text-2xs text-white/20">
+						Git output is shown in the diff pane.
 					</div>
 				</Tabs.Content>
 			</Tabs.Root>

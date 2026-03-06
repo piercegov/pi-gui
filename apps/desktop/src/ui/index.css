@@ -5,26 +5,25 @@
 @tailwind utilities;
 
 :root {
-	--surface-0: #f4efe6;
-	--surface-1: #f8f4ed;
-	--surface-2: #ece5da;
-	--surface-3: #ded5c5;
-	--surface-border: rgba(58, 46, 30, 0.12);
-	--accent: #0f7b6c;
-	--accent-soft: rgba(15, 123, 108, 0.16);
-	--state-running: #0f7b6c;
-	--state-review: #9a6410;
-	--state-error: #b23a2b;
-	--state-applied: #3d6e1f;
-	--ink-strong: #1f1912;
-	--ink-soft: rgba(31, 25, 18, 0.72);
-	--diff-add: rgba(33, 115, 70, 0.14);
-	--diff-del: rgba(163, 55, 40, 0.12);
-	--diff-add-border: rgba(33, 115, 70, 0.28);
-	--diff-del-border: rgba(163, 55, 40, 0.28);
-	color-scheme: light;
-	font-family:
-		"Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+	--surface-0: #1a1a1a;
+	--surface-1: #212121;
+	--surface-2: #2a2a2a;
+	--surface-3: #333333;
+	--surface-border: rgba(255, 255, 255, 0.08);
+	--accent: #3ddc84;
+	--accent-soft: rgba(61, 220, 132, 0.12);
+	--state-running: #3ddc84;
+	--state-review: #f0a830;
+	--state-error: #f44336;
+	--state-applied: #66bb6a;
+	--ink-strong: #e8e8e8;
+	--ink-muted: rgba(255, 255, 255, 0.55);
+	--ink-faint: rgba(255, 255, 255, 0.3);
+	--diff-add: rgba(61, 220, 132, 0.1);
+	--diff-del: rgba(244, 67, 54, 0.1);
+	--diff-add-border: rgba(61, 220, 132, 0.25);
+	--diff-del-border: rgba(244, 67, 54, 0.25);
+	color-scheme: dark;
 }
 
 html,
@@ -35,11 +34,12 @@ body,
 
 body {
 	margin: 0;
-	background:
-		radial-gradient(circle at top right, rgba(15, 123, 108, 0.08), transparent 24%),
-		radial-gradient(circle at bottom left, rgba(154, 100, 16, 0.08), transparent 22%),
-		linear-gradient(180deg, #faf6ef 0%, #f1e9de 100%);
+	background: var(--surface-0);
 	color: var(--ink-strong);
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+		"Segoe UI", sans-serif;
+	font-size: 13px;
+	-webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -51,18 +51,25 @@ input,
 textarea,
 select {
 	font: inherit;
+	color: inherit;
 }
 
 ::-webkit-scrollbar {
-	width: 12px;
-	height: 12px;
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: rgba(31, 25, 18, 0.12);
-	border: 3px solid transparent;
-	border-radius: 999px;
-	background-clip: padding-box;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: rgba(255, 255, 255, 0.18);
 }
 
 .drag-region {
@@ -75,15 +82,8 @@ select {
 	app-region: no-drag;
 }
 
-.surface-panel {
-	background: color-mix(in srgb, var(--surface-1) 88%, white 12%);
-	border: 1px solid var(--surface-border);
-	box-shadow: 0 8px 24px rgba(25, 20, 12, 0.05);
-}
-
 .mono {
-	font-family:
-		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
+	font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
 
 .markdown {
@@ -96,20 +96,35 @@ select {
 .markdown ol,
 .markdown pre,
 .markdown blockquote {
-	margin: 0 0 0.8rem;
+	margin: 0 0 0.65rem;
 }
 
 .markdown code {
-	font-family:
-		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
+	font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 0.9em;
+	background: rgba(255, 255, 255, 0.06);
+	padding: 0.15em 0.35em;
+	border-radius: 4px;
+}
+
+.markdown pre code {
+	background: none;
+	padding: 0;
+}
+
+.markdown pre {
+	background: rgba(0, 0, 0, 0.3);
+	border: 1px solid var(--surface-border);
+	border-radius: 8px;
+	padding: 0.75rem 1rem;
+	overflow-x: auto;
 }
 
 .diff-shell {
 	--diff-background-color: transparent;
 	--diff-text-color: var(--ink-strong);
-	--diff-font-family:
-		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
-	--diff-selection-background-color: rgba(15, 123, 108, 0.16);
+	--diff-font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+	--diff-selection-background-color: rgba(61, 220, 132, 0.2);
 	--diff-code-insert-background-color: var(--diff-add);
 	--diff-code-delete-background-color: var(--diff-del);
 	--diff-code-insert-edit-background-color: var(--diff-add);

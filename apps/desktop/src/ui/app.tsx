@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionHydration, SessionSummary, ToastMessage } from "@shared/models";
 import { rpc } from "@ui/lib/rpc-client";
 import { useConversationStore } from "@ui/stores/conversation-store";
@@ -14,6 +14,42 @@ import { ConversationPane } from "./components/chat/conversation-pane";
 import { DiffPane } from "./components/diff/diff-pane";
 import { TerminalDrawer } from "./components/terminal/terminal-drawer";
 import { SettingsDialog } from "./components/settings/settings-dialog";
+
+function ResizeHandle(props: {
+	onDrag: (delta: number) => void;
+}) {
+	const onDragRef = useRef(props.onDrag);
+	onDragRef.current = props.onDrag;
+
+	const onMouseDown = useCallback((e: React.MouseEvent) => {
+		e.preventDefault();
+		let lastX = e.clientX;
+		const onMouseMove = (ev: MouseEvent) => {
+			const delta = ev.clientX - lastX;
+			lastX = ev.clientX;
+			onDragRef.current(delta);
+		};
+		const onMouseUp = () => {
+			document.removeEventListener("mousemove", onMouseMove);
+			document.removeEventListener("mouseup", onMouseUp);
+			document.body.style.cursor = "";
+			document.body.style.userSelect = "";
+		};
+		document.addEventListener("mousemove", onMouseMove);
+		document.addEventListener("mouseup", onMouseUp);
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+	}, []);
+
+	return (
+		<div
+			onMouseDown={onMouseDown}
+			className="group relative z-20 w-0 cursor-col-resize"
+		>
+			<div className="absolute inset-y-0 -left-[2px] w-[4px] bg-transparent transition group-hover:bg-accent/30 group-active:bg-accent/50" />
+		</div>
+	);
+}
 
 export function App() {
 	const { projects, selectedProjectId, loadProjects, addProject, removeProject, selectProject } =
@@ -44,6 +80,10 @@ export function App() {
 	const toggleTerminal = useLayoutStore((state) => state.toggleTerminal);
 	const settingsOpen = useLayoutStore((state) => state.settingsOpen);
 	const setSettingsOpen = useLayoutStore((state) => state.setSettingsOpen);
+	const sidebarWidth = useLayoutStore((state) => state.sidebarWidth);
+	const adjustSidebarWidth = useLayoutStore((state) => state.adjustSidebarWidth);
+	const diffPaneWidth = useLayoutStore((state) => state.diffPaneWidth);
+	const adjustDiffPaneWidth = useLayoutStore((state) => state.adjustDiffPaneWidth);
 	const appendTerminalOutput = useTerminalStore((state) => state.appendOutput);
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -233,7 +273,7 @@ export function App() {
 	}, [selectedProjectId, setSettingsOpen, toggleTerminal]);
 
 	return (
-		<div className="flex h-full flex-col">
+		<div className="flex h-full flex-col bg-surface-0">
 			<TitleBar
 				session={currentSession}
 				onNewSession={() => void handleCreateSession()}
@@ -242,7 +282,8 @@ export function App() {
 				supportsEmbeddedTerminal={supportsEmbeddedTerminal}
 			/>
 
-			<div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)_minmax(420px,38vw)]">
+			<div className="flex min-h-0 flex-1">
+				<div style={{ width: sidebarWidth, minWidth: 160, maxWidth: 400 }} className="shrink-0">
 				<Sidebar
 					projects={projects}
 					selectedProjectId={selectedProjectId}
@@ -265,7 +306,11 @@ export function App() {
 					}
 					onOpenSettings={() => setSettingsOpen(true)}
 				/>
+				</div>
 
+				<ResizeHandle onDrag={adjustSidebarWidth} />
+
+				<div className="min-w-0 flex-1">
 				<ConversationPane
 					session={currentSession}
 					entries={entries}
@@ -291,7 +336,11 @@ export function App() {
 							: Promise.resolve()
 					}
 				/>
+				</div>
 
+				<ResizeHandle onDrag={(delta) => adjustDiffPaneWidth(-delta)} />
+
+				<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: 900 }} className="shrink-0">
 				<DiffPane
 					session={currentSession}
 					inspector={currentInspector}
@@ -321,6 +370,7 @@ export function App() {
 							: Promise.resolve()
 					}
 				/>
+				</div>
 			</div>
 
 			<TerminalDrawer
@@ -337,15 +387,22 @@ export function App() {
 				onUpdate={updateSettings}
 			/>
 
-			<div className="pointer-events-none fixed right-4 top-16 z-50 flex w-80 flex-col gap-2">
+			{/* Status bar */}
+			<div className="flex h-6 shrink-0 items-center justify-between border-t border-surface-border bg-surface-0 px-3 text-2xs text-white/25">
+				<span>{currentSession ? `${currentSession.mode} · ${currentSession.reviewState}` : "No session"}</span>
+				<span>{currentSession?.modelLabel ?? ""}</span>
+			</div>
+
+			{/* Toasts */}
+			<div className="pointer-events-none fixed right-3 top-14 z-50 flex w-72 flex-col gap-1.5">
 				{toasts.map((toast) => (
 					<div
 						key={toast.id}
-						className="surface-panel rounded-2xl px-4 py-3 text-sm text-black/75"
+						className="border border-surface-border bg-surface-2 px-3 py-2 text-xs shadow-lg"
 					>
-						<div className="font-semibold">{toast.title}</div>
+						<div className="font-medium text-white/80">{toast.title}</div>
 						{toast.description ? (
-							<div className="mt-1 text-black/55">{toast.description}</div>
+							<div className="mt-0.5 text-white/40">{toast.description}</div>
 						) : null}
 					</div>
 				))}
