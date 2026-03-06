@@ -19,6 +19,7 @@ export const defaultAppSettings: AppSettings = {
 	stateErrorColor: "#f44336",
 	stateAppliedColor: "#66bb6a",
 	environmentOverrides: {},
+	shellEnvTimeoutMs: 10_000,
 };
 
 type PreferenceRow = {

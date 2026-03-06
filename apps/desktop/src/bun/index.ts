@@ -52,15 +52,16 @@ async function getMainViewUrl(): Promise<string> {
 	return "views://mainview/index.html";
 }
 
-// Resolve the user's full shell environment before initializing any services.
-// macOS GUI apps receive a minimal PATH from launchd; this captures the real
-// PATH from the user's login shell so tools like git, zoxide, starship, and
-// Homebrew binaries are available to all spawned processes.
-await resolveShellEnvironment();
-
 const db = new AppDb();
 const git = new GitService();
 const settings = new SettingsService(db);
+
+// Resolve the user's full shell environment before initializing remaining services.
+// macOS GUI apps receive a minimal PATH from launchd; this captures the real
+// PATH from the user's login shell so tools like git, zoxide, starship, and
+// Homebrew binaries are available to all spawned processes.
+await resolveShellEnvironment(settings.getAppSettings().shellEnvTimeoutMs);
+
 const projects = new ProjectService(db, git);
 let rpc = null as unknown as ReturnType<typeof defineElectrobunRPC<AppRpcSchema>>;
 const sendToView = (

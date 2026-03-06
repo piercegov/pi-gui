@@ -260,6 +260,7 @@ export interface AppSettings {
 	stateErrorColor: string;
 	stateAppliedColor: string;
 	environmentOverrides: Record<string, string>;
+	shellEnvTimeoutMs: number;
 }
 
 export interface SessionHydration {

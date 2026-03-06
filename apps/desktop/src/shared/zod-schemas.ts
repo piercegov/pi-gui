@@ -269,6 +269,7 @@ export const appSettingsSchema = z.object({
 	showArchived: z.boolean(),
 	uiDensity: z.enum(["compact", "comfortable"]),
 	environmentOverrides: z.record(z.string(), z.string()).optional(),
+	shellEnvTimeoutMs: z.number().int().optional(),
 });
 
 export const sessionHydrationSchema = z.object({

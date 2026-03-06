@@ -10,7 +10,7 @@
  * (terminal PTY, git operations, pi agent) get the user's real PATH.
  */
 
-const TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 function parseEnvNul(raw: string): Record<string, string> {
 	const env: Record<string, string> = {};
@@ -23,7 +23,9 @@ function parseEnvNul(raw: string): Record<string, string> {
 	return env;
 }
 
-export async function resolveShellEnvironment(): Promise<void> {
+export async function resolveShellEnvironment(
+	timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<void> {
 	if (process.platform === "win32") return;
 
 	const shell = process.env.SHELL ?? "/bin/zsh";
@@ -37,7 +39,7 @@ export async function resolveShellEnvironment(): Promise<void> {
 		const result = await Promise.race([
 			proc.exited,
 			new Promise<"timeout">((resolve) =>
-				setTimeout(() => resolve("timeout"), TIMEOUT_MS),
+				setTimeout(() => resolve("timeout"), timeoutMs),
 			),
 		]);
 
@@ -45,7 +47,7 @@ export async function resolveShellEnvironment(): Promise<void> {
 			proc.kill();
 			console.warn(
 				"[shell-env] Login shell timed out after %dms — using default environment",
-				TIMEOUT_MS,
+				timeoutMs,
 			);
 			return;
 		}
