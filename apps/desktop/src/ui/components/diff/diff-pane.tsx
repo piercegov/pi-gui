@@ -3,7 +3,7 @@ import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-
 import type { HunkTokens } from "react-diff-view";
 import { refractor } from "refractor";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge } from "lucide-react";
+import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
@@ -265,6 +265,7 @@ export function DiffPane(props: {
 	const [inspectorOpen, setInspectorOpen] = useState(false);
 	const [commitMessage, setCommitMessage] = useState("");
 	const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+	const [fileListCollapsed, setFileListCollapsed] = useState(false);
 	const [selectionPopup, setSelectionPopup] = useState<{
 		x: number;
 		y: number;
@@ -331,6 +332,12 @@ export function DiffPane(props: {
 			document.removeEventListener("keydown", onEscape);
 		};
 	}, [selectionPopup]);
+
+	const scrollToFile = useCallback((filePath: string) => {
+		if (!diffContentRef.current) return;
+		const el = diffContentRef.current.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
+		if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+	}, []);
 
 	const handleDiffMouseUp = useCallback(
 		(_e: React.MouseEvent) => {
@@ -650,48 +657,68 @@ export function DiffPane(props: {
 				</div>
 			</div>
 
-			<div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
+			<div className={`grid min-h-0 flex-1 ${fileListCollapsed ? "grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-[240px_minmax(0,1fr)]"}`}>
 				{/* File list + optional Inspector sidebar */}
-				<div
-					ref={fileListParentRef}
-					className="overflow-auto border-r border-surface-border px-2 py-2"
-				>
-					{inspectorOpen ? (
-						<div className="mb-2 border-b border-surface-border pb-2">
-							<SessionInspector
-								session={props.session}
-								inspector={props.inspector}
-								onCreateManualCheckpoint={props.onCreateManualCheckpoint}
-								onRepairWorktree={props.onRepairWorktree}
-							/>
-						</div>
-					) : null}
-					<div
-						style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
+				{fileListCollapsed ? (
+					<button
+						onClick={() => setFileListCollapsed(false)}
+						className="flex items-center justify-center border-r border-surface-border px-1 text-white/30 transition hover:bg-white/5 hover:text-white/50"
+						title="Show file list"
 					>
-						{rowVirtualizer.getVirtualItems().map((item) => {
-							const file = filteredFiles[item.index];
-							const path = file.newPath || file.oldPath;
-							const stats = fileStats(file);
-							return (
-								<div
-									key={item.key}
-									className="absolute left-0 right-0 border-b border-surface-border px-2.5 py-1.5 text-xs hover:bg-white/3"
-									style={{ transform: `translateY(${item.start}px)` }}
-								>
-									<div className="truncate font-medium text-white/70 mono text-2xs">
-										{path}
-									</div>
-									<div className="mt-0.5 text-2xs text-white/25">
-										<span className="text-state-applied">+{stats.additions}</span>
-										{" "}
-										<span className="text-state-error">-{stats.deletions}</span>
-									</div>
+						<PanelLeftOpen className="h-3.5 w-3.5" />
+					</button>
+				) : (
+					<div className="flex flex-col overflow-hidden border-r border-surface-border">
+						<div className="flex items-center justify-between border-b border-surface-border px-2.5 py-1.5">
+							<span className="text-2xs font-medium uppercase tracking-wider text-white/40">Files</span>
+							<button
+								onClick={() => setFileListCollapsed(true)}
+								className="text-white/30 transition hover:text-white/50"
+								title="Hide file list"
+							>
+								<PanelLeftClose className="h-3.5 w-3.5" />
+							</button>
+						</div>
+						<div ref={fileListParentRef} className="flex-1 overflow-auto px-2 py-1">
+							{inspectorOpen ? (
+								<div className="mb-2 border-b border-surface-border pb-2">
+									<SessionInspector
+										session={props.session}
+										inspector={props.inspector}
+										onCreateManualCheckpoint={props.onCreateManualCheckpoint}
+										onRepairWorktree={props.onRepairWorktree}
+									/>
 								</div>
-							);
-						})}
+							) : null}
+							<div
+								style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
+							>
+								{rowVirtualizer.getVirtualItems().map((item) => {
+									const file = filteredFiles[item.index];
+									const path = file.newPath || file.oldPath;
+									const stats = fileStats(file);
+									return (
+										<button
+											key={item.key}
+											onClick={() => scrollToFile(path)}
+											className="absolute left-0 right-0 border-b border-surface-border px-2.5 py-1.5 text-xs text-left hover:bg-white/5 cursor-pointer"
+											style={{ transform: `translateY(${item.start}px)` }}
+										>
+											<div className="truncate font-medium text-white/70 mono text-2xs">
+												{path}
+											</div>
+											<div className="mt-0.5 text-2xs text-white/25">
+												<span className="text-state-applied">+{stats.additions}</span>
+												{" "}
+												<span className="text-state-error">-{stats.deletions}</span>
+											</div>
+										</button>
+									);
+								})}
+							</div>
+						</div>
 					</div>
-				</div>
+				)}
 
 				{/* Diff content */}
 				<div ref={diffContentRef} className="diff-shell overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
