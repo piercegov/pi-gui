@@ -1,10 +1,30 @@
-import { ChevronRight, AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, AlertCircle, Copy, Check } from "lucide-react";
 import type {
 	CheckpointSummaryView,
 	SessionInspectorView,
 	SessionSummary,
 	SessionTreeNodeView,
 } from "@shared/models";
+
+function formatTreeNode(node: SessionTreeNodeView, depth = 0): string {
+	const indent = "  ".repeat(depth);
+	const marker = node.isCurrent ? "▸ " : "  ";
+	const type = node.type.replace(/_/g, " ");
+	const label = node.label ?? type;
+	const lines = [`${indent}${marker}${label}${node.isCurrent ? " (current)" : ""}`];
+	if (node.summary) {
+		lines.push(`${indent}    ${node.summary}`);
+	}
+	for (const child of node.children) {
+		lines.push(formatTreeNode(child, depth + 1));
+	}
+	return lines.join("\n");
+}
+
+function formatTree(tree: SessionTreeNodeView[]): string {
+	return tree.map((node) => formatTreeNode(node)).join("\n");
+}
 
 function checkpointLabel(kind: CheckpointSummaryView["kind"]) {
 	return kind.replace(/_/g, " ");
@@ -44,6 +64,58 @@ function TreeNode(props: {
 					))}
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+function TreeSection(props: { tree?: SessionTreeNodeView[] }) {
+	const [copied, setCopied] = useState(false);
+
+	const handleCopy = async () => {
+		if (!props.tree?.length) return;
+		await navigator.clipboard.writeText(formatTree(props.tree));
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	};
+
+	return (
+		<div>
+			<div className="mb-1.5 flex items-center justify-between">
+				<div className="flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-white/30">
+					<ChevronRight className="h-3 w-3" />
+					Session tree
+				</div>
+				{props.tree?.length ? (
+					<button
+						onClick={() => void handleCopy()}
+						className="flex items-center gap-1 text-2xs text-white/30 transition hover:text-white/60"
+						title="Copy session tree"
+					>
+						{copied ? (
+							<>
+								<Check className="h-3 w-3" />
+								Copied
+							</>
+						) : (
+							<>
+								<Copy className="h-3 w-3" />
+								Copy
+							</>
+						)}
+					</button>
+				) : null}
+			</div>
+			<div className="max-h-[280px] space-y-px overflow-auto">
+				{props.tree?.length ? (
+					props.tree.map((node) => (
+						<TreeNode key={node.id} node={node} />
+					))
+				) : (
+					<div className="py-2 text-2xs text-white/20">
+						Tree data appears after recording starts.
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -153,23 +225,7 @@ export function SessionInspector(props: {
 			</div>
 
 			{/* Tree */}
-			<div>
-				<div className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-white/30">
-					<ChevronRight className="h-3 w-3" />
-					Session tree
-				</div>
-				<div className="max-h-[280px] space-y-px overflow-auto">
-					{props.inspector?.tree.length ? (
-						props.inspector.tree.map((node) => (
-							<TreeNode key={node.id} node={node} />
-						))
-					) : (
-						<div className="py-2 text-2xs text-white/20">
-							Tree data appears after recording starts.
-						</div>
-					)}
-				</div>
-			</div>
+			<TreeSection tree={props.inspector?.tree} />
 		</div>
 	);
 }

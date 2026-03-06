@@ -21,6 +21,11 @@
         "prefix": [
           "bunx"
         ]
+      },
+      {
+        "prefix": [
+          "xargs"
+        ]
       }
     ],
     "deny": []
