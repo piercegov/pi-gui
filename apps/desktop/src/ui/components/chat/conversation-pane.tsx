@@ -20,14 +20,16 @@ function stripToolCallLines(markdown: string): string {
 		.trim();
 }
 
+type TurnContentBlock =
+	| { type: "text"; markdown: string }
+	| { type: "tool"; entry: ConversationEntryView };
+
 type AssistantTurn = {
 	type: "assistant_turn";
 	/** First assistant entry in the group (used for id/timestamp). */
 	lead: ConversationEntryView;
-	/** Real text from all assistant entries in this turn. */
-	textMarkdown: string;
-	/** Tool result entries in this turn. */
-	tools: ConversationEntryView[];
+	/** Ordered content blocks preserving the interleaving of text and tool calls. */
+	blocks: TurnContentBlock[];
 };
 
 type CheckpointBlock = {
@@ -54,16 +56,15 @@ function groupEntries(
 		const entry = entries[i];
 		if (entry.kind === "assistant") {
 			const lead = entry;
-			const textParts: string[] = [];
+			const contentBlocks: TurnContentBlock[] = [];
 			const realText = stripToolCallLines(entry.markdown);
-			if (realText) textParts.push(realText);
-			const tools: ConversationEntryView[] = [];
+			if (realText) contentBlocks.push({ type: "text", markdown: realText });
 			i++;
 			// Absorb following tool results and tool-call-only assistant entries
 			while (i < entries.length) {
 				const next = entries[i];
 				if (next.kind === "tool") {
-					tools.push(next);
+					contentBlocks.push({ type: "tool", entry: next });
 					i++;
 				} else if (isToolCallOnly(next)) {
 					// Skip tool-call-only assistant entries (tool names already shown on cards)
@@ -71,7 +72,7 @@ function groupEntries(
 				} else if (next.kind === "assistant") {
 					// Another assistant entry with real text — include text and continue absorbing
 					const text = stripToolCallLines(next.markdown);
-					if (text) textParts.push(text);
+					if (text) contentBlocks.push({ type: "text", markdown: text });
 					i++;
 				} else {
 					break;
@@ -80,8 +81,7 @@ function groupEntries(
 			blocks.push({
 				type: "assistant_turn",
 				lead,
-				textMarkdown: textParts.join("\n\n"),
-				tools,
+				blocks: contentBlocks,
 			});
 		} else {
 			blocks.push({ type: "entry", entry });
@@ -359,18 +359,17 @@ export function ConversationPane(props: {
 												})}
 											</span>
 										</div>
-										{block.tools.length > 0 && (
-											<div className="mb-3 flex flex-col gap-1.5">
-												{block.tools.map((tool) => (
-													<ToolInvocationCard key={tool.id} entry={tool} />
-												))}
+											<div className="flex flex-col gap-2">
+										{block.blocks.map((contentBlock, idx) =>
+										contentBlock.type === "tool" ? (
+											<ToolInvocationCard key={contentBlock.entry.id} entry={contentBlock.entry} />
+										) : (
+											<div key={`text-${idx}`} className="text-xs leading-relaxed">
+												<MarkdownRenderer markdown={contentBlock.markdown} />
 											</div>
-										)}
-										{block.textMarkdown && (
-											<div className="text-xs leading-relaxed">
-												<MarkdownRenderer markdown={block.textMarkdown} />
-											</div>
-										)}
+										),
+									)}
+										</div>
 									</article>
 								);
 							}
