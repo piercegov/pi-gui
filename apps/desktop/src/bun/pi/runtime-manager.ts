@@ -23,6 +23,8 @@ import {
 import type { HostMessenger } from "../services/host-messenger";
 import { appPaths } from "../services/app-paths";
 
+const MUTATING_TOOLS = new Set(["write", "edit", "bash"]);
+
 type RuntimeSessionRecord = {
 	id: string;
 	cwdPath: string;
@@ -488,6 +490,12 @@ export class PiRuntimeManager {
 				type: "tool_activity",
 				activity: next,
 			});
+			if (MUTATING_TOOLS.has(event.toolName) && !event.isError) {
+				this.messenger.diffInvalidated({
+					sessionId: runtime.record.id,
+					scope: "session_changes",
+				});
+			}
 			return;
 		}
 		if ("errorMessage" in event && event.errorMessage) {

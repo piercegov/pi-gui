@@ -859,6 +859,10 @@ export class SessionService {
 				scope: "last_turn_changes",
 			});
 		}
+		this.messenger.diffInvalidated({
+			sessionId,
+			scope: "session_changes",
+		});
 		await this.review.markRoundAppliedForSession(sessionId);
 		await this.refreshAndPublishSession(sessionId);
 	}
