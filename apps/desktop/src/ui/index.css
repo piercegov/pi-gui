@@ -84,7 +84,7 @@ select {
 }
 
 .mono {
-	font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
 
 .markdown {
@@ -100,8 +100,13 @@ select {
 	margin: 0 0 0.65rem;
 }
 
+.markdown {
+	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 0.85em;
+}
+
 .markdown code {
-	font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 	font-size: 0.9em;
 	background: rgba(255, 255, 255, 0.06);
 	padding: 0.15em 0.35em;
@@ -124,7 +129,7 @@ select {
 .diff-shell {
 	--diff-background-color: transparent;
 	--diff-text-color: var(--ink-strong);
-	--diff-font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+	--diff-font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 	--diff-selection-background-color: rgba(61, 220, 132, 0.2);
 	--diff-code-insert-background-color: var(--diff-add);
 	--diff-code-delete-background-color: var(--diff-del);

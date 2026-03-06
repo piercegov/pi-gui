@@ -33,7 +33,7 @@ export function TerminalDrawer(props: {
 			return;
 		}
 		const terminal = new Terminal({
-			fontFamily: "SF Mono, Menlo, Monaco, Consolas, monospace",
+			fontFamily: "JetBrains Mono, SF Mono, Menlo, Monaco, Consolas, monospace",
 			fontSize: 13,
 			theme: {
 				background: "#1a1a1a",
