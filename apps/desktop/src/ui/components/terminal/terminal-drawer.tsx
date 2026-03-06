@@ -4,7 +4,7 @@ import { FitAddon } from "xterm-addon-fit";
 import type { ToolActivityView } from "@shared/models";
 import { useTerminalStore } from "@ui/stores/terminal-store";
 
-const tabs = ["terminal", "tools", "git"] as const;
+const tabs = ["terminal", "tools"] as const;
 type Tab = (typeof tabs)[number];
 
 export function TerminalDrawer(props: {
@@ -136,14 +136,7 @@ export function TerminalDrawer(props: {
 							</div>
 						</div>
 					)}
-					{activeTab === "git" && (
-						<div className="h-full overflow-auto px-3 py-2">
-							<div className="py-4 text-center text-2xs text-white/20">
-								Git output is shown in the diff pane.
-							</div>
-						</div>
-					)}
-				</div>
+					</div>
 			</div>
 		</div>
 	);
