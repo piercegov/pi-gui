@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-diff-view";
 import type { HunkTokens } from "react-diff-view";
 import { refractor } from "refractor";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info } from "lucide-react";
+import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
@@ -80,8 +80,44 @@ function InlineThread(props: {
 	onReopen: (threadId: string) => Promise<void>;
 }) {
 	const [replyBody, setReplyBody] = useState("");
+	const [minimized, setMinimized] = useState(false);
+
+	const totalMessages = props.threads.reduce((sum, t) => sum + t.messages.length, 0);
+	const unresolvedCount = props.threads.filter((t) => t.status !== "resolved").length;
+
+	if (minimized) {
+		return (
+			<button
+				onClick={() => setMinimized(false)}
+				className="flex items-center gap-1.5 border-l-2 border-accent/30 bg-surface-2 px-3 py-1.5 text-2xs text-white/50 transition hover:bg-surface-2/80 hover:text-white/70"
+			>
+				<MessageSquare className="h-3 w-3 text-accent/60" />
+				<span>
+					{props.threads.length} {props.threads.length === 1 ? "thread" : "threads"}
+					{" · "}
+					{totalMessages} {totalMessages === 1 ? "comment" : "comments"}
+				</span>
+				{unresolvedCount > 0 && (
+					<span className="text-state-review">
+						· {unresolvedCount} unresolved
+					</span>
+				)}
+				<ChevronRight className="h-3 w-3" />
+			</button>
+		);
+	}
+
 	return (
 		<div className="space-y-2 border-l-2 border-accent/30 bg-surface-2 p-3">
+			<div className="flex justify-end">
+				<button
+					onClick={() => setMinimized(true)}
+					className="flex items-center gap-0.5 text-2xs text-white/30 transition hover:text-white/50"
+				>
+					<ChevronDown className="h-3 w-3" />
+					Minimize
+				</button>
+			</div>
 			{props.threads.map((thread) => (
 				<div key={thread.id} className="border-b border-surface-border pb-2 last:border-b-0">
 					<div className="mb-1.5 flex items-center justify-between text-2xs text-white/30">
@@ -193,6 +229,15 @@ export function DiffPane(props: {
 	const [draftBody, setDraftBody] = useState("");
 	const [unresolvedOnly, setUnresolvedOnly] = useState(false);
 	const [inspectorOpen, setInspectorOpen] = useState(false);
+	const [selectionPopup, setSelectionPopup] = useState<{
+		x: number;
+		y: number;
+		selectedText: string;
+		filePath: string;
+		lineNumber: number;
+		side: "old" | "new";
+	} | null>(null);
+	const diffContentRef = useRef<HTMLDivElement>(null);
 
 	const parsedFiles = useMemo(
 		() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
@@ -221,6 +266,132 @@ export function DiffPane(props: {
 	});
 
 	const currentRoundState = props.activeReviewRound?.state;
+
+	// Dismiss selection popup on outside click or Escape
+	useEffect(() => {
+		if (!selectionPopup) return;
+		const dismiss = (e: MouseEvent) => {
+			if (!(e.target as HTMLElement).closest("[data-selection-popup]")) {
+				setSelectionPopup(null);
+			}
+		};
+		const onEscape = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setSelectionPopup(null);
+		};
+		document.addEventListener("mousedown", dismiss);
+		document.addEventListener("keydown", onEscape);
+		return () => {
+			document.removeEventListener("mousedown", dismiss);
+			document.removeEventListener("keydown", onEscape);
+		};
+	}, [selectionPopup]);
+
+	const handleDiffMouseUp = useCallback(
+		(_e: React.MouseEvent) => {
+			const sel = window.getSelection();
+			if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+			if (!diffContentRef.current || !props.diff) return;
+
+			const selectedText = sel.toString();
+
+			// Position popup above the selection
+			const range = sel.getRangeAt(0);
+			const rect = range.getBoundingClientRect();
+			const popupX = rect.left + rect.width / 2;
+			const popupY = rect.top - 8;
+
+			// Walk up from selection anchor to find table row
+			let node: Node | null = sel.anchorNode;
+			let row: HTMLElement | null = null;
+			while (node && node !== diffContentRef.current) {
+				if (node instanceof HTMLElement && node.tagName === "TR") {
+					row = node;
+					break;
+				}
+				node = node.parentNode;
+			}
+			if (!row) return;
+
+			// Find file container with data-file-path
+			let el: HTMLElement | null = row;
+			while (el && !el.dataset?.filePath) {
+				el = el.parentElement;
+			}
+			if (!el?.dataset?.filePath) return;
+			const filePath = el.dataset.filePath;
+
+			// Determine side from gutter cell classes
+			const isDelete = row.querySelector(".diff-gutter-delete") !== null;
+			const side: "old" | "new" = isDelete ? "old" : "new";
+
+			// Get line number from gutter cells
+			const gutterCells = Array.from(row.querySelectorAll(".diff-gutter"));
+			let lineNumber: number | null = null;
+			if (isDelete) {
+				const num = parseInt(gutterCells[0]?.textContent || "", 10);
+				if (!isNaN(num)) lineNumber = num;
+			} else {
+				for (let i = gutterCells.length - 1; i >= 0; i--) {
+					const num = parseInt(gutterCells[i]?.textContent || "", 10);
+					if (!isNaN(num)) {
+						lineNumber = num;
+						break;
+					}
+				}
+			}
+			if (lineNumber === null) return;
+
+			setSelectionPopup({
+				x: popupX,
+				y: popupY,
+				selectedText,
+				filePath,
+				lineNumber,
+				side,
+			});
+		},
+		[props.diff],
+	);
+
+	const handleCommentFromSelection = useCallback(() => {
+		if (!selectionPopup || !props.diff) return;
+
+		const file = filteredFiles.find(
+			(f) => (f.newPath || f.oldPath) === selectionPopup.filePath,
+		);
+		if (!file) return;
+
+		for (const hunk of file.hunks) {
+			for (const change of hunk.changes) {
+				let line: number | undefined;
+				if (selectionPopup.side === "old" && "oldLineNumber" in change) {
+					line = change.oldLineNumber as number;
+				} else if (selectionPopup.side === "new") {
+					if ("lineNumber" in change) line = change.lineNumber as number;
+					else if ("oldLineNumber" in change)
+						line = change.oldLineNumber as number;
+				}
+				if (line === selectionPopup.lineNumber) {
+					setDraftAnchor(
+						createAnchorFromChange({
+							file,
+							hunk,
+							change,
+							diff: props.diff!,
+						}),
+					);
+					const quoted = selectionPopup.selectedText
+						.split("\n")
+						.map((l) => `> ${l}`)
+						.join("\n");
+					setDraftBody(`${quoted}\n\n`);
+					setSelectionPopup(null);
+					window.getSelection()?.removeAllRanges();
+					return;
+				}
+			}
+		}
+	}, [selectionPopup, filteredFiles, props.diff]);
 
 	if (!props.diff) {
 		return (
@@ -344,6 +515,14 @@ export function DiffPane(props: {
 							<CheckCircle2 className="h-3 w-3" />
 							Mark aligned
 						</button>
+					) : currentRoundState === "submitted" || currentRoundState === "awaiting_agent" ? (
+						<button
+							disabled
+							className="flex items-center gap-1 bg-accent/50 px-2.5 py-1 text-xs font-medium text-black/60 cursor-not-allowed"
+						>
+							<Loader2 className="h-3 w-3 animate-spin" />
+							Processing review…
+						</button>
 					) : (
 						<button
 							onClick={props.onSubmitReview}
@@ -400,14 +579,14 @@ export function DiffPane(props: {
 				</div>
 
 				{/* Diff content */}
-				<div className="diff-shell overflow-auto px-3 py-3">
+				<div ref={diffContentRef} className="diff-shell overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
 					<div className="space-y-4">
 						{filteredFiles.map((file) => {
 							const path = file.newPath || file.oldPath;
 							const lang = langFromPath(path);
 							const tokens = tokenizeHunks(file.hunks, lang);
 							return (
-								<div key={`${file.oldRevision}-${file.newRevision}`}>
+								<div key={`${file.oldRevision}-${file.newRevision}`} data-file-path={path}>
 									<div className="mb-1.5 flex items-center justify-between border-b border-surface-border pb-1.5">
 										<span className="mono text-xs text-white/60">{path}</span>
 										<span className="text-2xs uppercase tracking-wider text-white/25">
@@ -519,6 +698,23 @@ export function DiffPane(props: {
 					</div>
 				</div>
 			</div>
+
+			{selectionPopup && (
+				<div
+					data-selection-popup
+					className="fixed z-50 -translate-x-1/2 -translate-y-full border border-surface-border bg-surface-2 shadow-lg"
+					style={{ left: selectionPopup.x, top: selectionPopup.y }}
+					onMouseDown={(e) => e.stopPropagation()}
+				>
+					<button
+						onClick={handleCommentFromSelection}
+						className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white/70 transition hover:bg-white/5 hover:text-white"
+					>
+						<MessageSquarePlus className="h-3.5 w-3.5" />
+						Comment
+					</button>
+				</div>
+			)}
 		</section>
 	);
 }
