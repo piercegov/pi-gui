@@ -250,6 +250,29 @@ export function App() {
 		}
 	};
 
+	// Suppress default browser context menu (Inspect Element, Reload, etc.)
+	// but allow it on interactive text elements and the terminal
+	useEffect(() => {
+		const onContextMenu = (event: MouseEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (!target) {
+				event.preventDefault();
+				return;
+			}
+			if (
+				target instanceof HTMLInputElement ||
+				target instanceof HTMLTextAreaElement ||
+				target.isContentEditable ||
+				target.closest("[data-allow-context-menu]")
+			) {
+				return;
+			}
+			event.preventDefault();
+		};
+		window.addEventListener("contextmenu", onContextMenu);
+		return () => window.removeEventListener("contextmenu", onContextMenu);
+	}, []);
+
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			const target = event.target as HTMLElement | null;

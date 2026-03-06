@@ -109,7 +109,7 @@ export function TerminalDrawer(props: {
 					{/* Terminal - always mounted, use visibility to keep xterm alive */}
 					<div className={`absolute inset-0 ${activeTab === "terminal" ? "" : "invisible"}`}>
 						{props.supported ? (
-							<div ref={terminalRef} className="h-full w-full" />
+							<div ref={terminalRef} data-allow-context-menu className="h-full w-full" />
 						) : (
 							<div className="flex h-full items-center justify-center text-sm text-white/30">
 								Embedded terminal is unavailable on this platform.
