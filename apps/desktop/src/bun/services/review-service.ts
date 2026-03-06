@@ -663,7 +663,7 @@ export class ReviewService {
 		await this.refreshSession(sessionId);
 	}
 
-	async applyAndMerge(sessionId: string) {
+	async applyAndMerge(sessionId: string, commitMessage?: string) {
 		const row = this.db.get<{
 			cwd_path: string;
 			worktree_path: string | null;
@@ -678,7 +678,7 @@ export class ReviewService {
 		if (!row) throw new Error("Session not found.");
 
 		// Commit changes
-		await this.git.commitWorktreeChanges(row.cwd_path, "Apply approved revision");
+		await this.git.commitWorktreeChanges(row.cwd_path, commitMessage || "Apply approved revision");
 
 		// Merge if worktree mode
 		if (row.mode === "worktree" && row.worktree_branch && row.base_ref) {
@@ -696,7 +696,7 @@ export class ReviewService {
 		}
 
 		this.db.run(
-			"update sessions set status = 'completed', last_activity_at = ? where id = ?",
+			"update sessions set status = 'merged', last_activity_at = ? where id = ?",
 			Date.now(),
 			sessionId,
 		);

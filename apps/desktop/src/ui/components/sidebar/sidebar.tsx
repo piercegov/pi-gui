@@ -6,7 +6,7 @@ function sessionStatusColor(status: SessionSummary["status"]) {
 	if (status === "running") return "bg-state-running";
 	if (status === "reviewing") return "bg-state-review";
 	if (status === "error") return "bg-state-error";
-	if (status === "completed") return "bg-state-applied";
+	if (status === "completed" || status === "merged") return "bg-state-applied";
 	return "bg-white/20";
 }
 
@@ -156,7 +156,7 @@ export function Sidebar(props: {
 								>
 									<div className="flex items-center gap-2">
 										<span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${sessionStatusColor(session.status)}`} />
-										<span className={`truncate text-sm ${selected ? "text-white" : "text-white/75"}`}>
+										<span className={`truncate text-sm ${session.status === "merged" ? "line-through text-white/40" : selected ? "text-white" : "text-white/75"}`}>
 											{session.displayName}
 										</span>
 										<span className="ml-auto shrink-0 text-2xs text-white/25">
@@ -167,6 +167,9 @@ export function Sidebar(props: {
 										<span>{session.changedFilesCount} files</span>
 										{session.unresolvedCommentCount > 0 ? (
 											<span className="text-state-review">{session.unresolvedCommentCount} comments</span>
+										) : null}
+										{session.status === "merged" ? (
+											<span className="text-state-applied">merged</span>
 										) : null}
 										{session.archivedAt ? (
 											<span className="text-white/20">archived</span>

@@ -16,6 +16,7 @@ export type SessionStatus =
 	| "reviewing"
 	| "applying"
 	| "completed"
+	| "merged"
 	| "error"
 	| "archived";
 

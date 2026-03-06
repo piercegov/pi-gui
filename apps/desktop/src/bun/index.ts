@@ -315,7 +315,8 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 				await review.applyRevision(sessionIdSchema.parse(params).sessionId);
 			},
 			applyAndMerge: async (params: unknown) => {
-				await review.applyAndMerge(sessionIdSchema.parse(params).sessionId);
+				const parsed = z.object({ sessionId: z.string(), commitMessage: z.string().optional() }).parse(params);
+				await review.applyAndMerge(parsed.sessionId, parsed.commitMessage);
 			},
 			createManualCheckpoint: async (params: unknown) =>
 				checkpointSummarySchema.parse(

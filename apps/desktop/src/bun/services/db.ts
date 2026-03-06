@@ -189,6 +189,34 @@ export class AppDb {
 
 			this.setSchemaVersion(1);
 		}
+
+		if (currentVersion < 2) {
+			// Drop old CHECK constraint on checkpoints.kind that didn't include 'revision'
+			const tableInfo = this.get<{ sql: string }>(
+				"SELECT sql FROM sqlite_master WHERE type='table' AND name='checkpoints'",
+			);
+			if (tableInfo?.sql?.includes("check")) {
+				this.sqlite.exec(`
+					CREATE TABLE checkpoints_new (
+						id text primary key,
+						session_id text not null references sessions(id) on delete cascade,
+						kind text not null,
+						turn_id text references turns(id) on delete set null,
+						git_head text,
+						git_tree text,
+						manifest_path text,
+						patch_path text,
+						stats_json text not null default '{}',
+						created_at integer not null,
+						parent_checkpoint_id text
+					);
+					INSERT INTO checkpoints_new SELECT * FROM checkpoints;
+					DROP TABLE checkpoints;
+					ALTER TABLE checkpoints_new RENAME TO checkpoints;
+				`);
+			}
+			this.setSchemaVersion(2);
+		}
 	}
 
 	private getSchemaVersion(): number {

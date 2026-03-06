@@ -138,7 +138,7 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				response: void;
 			};
 			applyAndMerge: {
-				params: { sessionId: string };
+				params: { sessionId: string; commitMessage?: string };
 				response: void;
 			};
 			createManualCheckpoint: {

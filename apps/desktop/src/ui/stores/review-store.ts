@@ -32,7 +32,7 @@ type ReviewState = {
 	startNextRevision: () => Promise<void>;
 	approve: () => Promise<void>;
 	applyRevision: () => Promise<void>;
-	applyAndMerge: () => Promise<void>;
+	applyAndMerge: (commitMessage?: string) => Promise<void>;
 	markStale: (sessionId: string, revisionNumber?: number) => void;
 };
 
@@ -158,10 +158,10 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		if (!sessionId) return;
 		await rpc.request.applyRevision({ sessionId });
 	},
-	async applyAndMerge() {
+	async applyAndMerge(commitMessage?: string) {
 		const sessionId = get().sessionId;
 		if (!sessionId) return;
-		await rpc.request.applyAndMerge({ sessionId });
+		await rpc.request.applyAndMerge({ sessionId, commitMessage });
 	},
 	markStale(sessionId, _revisionNumber) {
 		if (sessionId !== get().sessionId) return;

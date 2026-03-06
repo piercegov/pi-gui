@@ -463,7 +463,6 @@ export class SessionService {
 			Date.now(),
 			sessionId,
 		);
-		await this.refreshAndPublishSession(sessionId);
 	}
 
 	async repairSessionWorktree(sessionId: string) {

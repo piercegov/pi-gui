@@ -226,12 +226,6 @@ export function App() {
 	};
 
 	const handleArchiveSession = async (session: SessionSummary, archived: boolean) => {
-		if (
-			archived &&
-			!window.confirm(`Archive "${session.displayName}"? You can restore it later.`)
-		) {
-			return;
-		}
 		await archiveSession(session.id, archived, session.projectId);
 		if (
 			archived &&
@@ -394,7 +388,7 @@ export function App() {
 					onStartNextRevision={() => review.startNextRevision()}
 					onApprove={() => review.approve()}
 					onApplyRevision={() => review.applyRevision()}
-					onApplyAndMerge={() => review.applyAndMerge()}
+					onApplyAndMerge={(commitMessage) => review.applyAndMerge(commitMessage)}
 					onCreateManualCheckpoint={() =>
 						currentSession
 							? createManualCheckpoint(currentSession.id).then(() => undefined)

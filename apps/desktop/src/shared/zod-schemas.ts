@@ -105,6 +105,7 @@ export const sessionSummarySchema = z.object({
 		"reviewing",
 		"applying",
 		"completed",
+		"merged",
 		"error",
 		"archived",
 	]),

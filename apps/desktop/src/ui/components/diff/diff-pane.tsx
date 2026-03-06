@@ -253,7 +253,7 @@ export function DiffPane(props: {
 	onStartNextRevision: () => Promise<void>;
 	onApprove: () => Promise<void>;
 	onApplyRevision: () => Promise<void>;
-	onApplyAndMerge: () => Promise<void>;
+	onApplyAndMerge: (commitMessage?: string) => Promise<void>;
 	onCreateManualCheckpoint: () => Promise<void>;
 	onRepairWorktree: () => Promise<void>;
 }) {
@@ -263,6 +263,7 @@ export function DiffPane(props: {
 	const [draftBody, setDraftBody] = useState("");
 	const [unresolvedOnly, setUnresolvedOnly] = useState(false);
 	const [inspectorOpen, setInspectorOpen] = useState(false);
+	const [commitMessage, setCommitMessage] = useState("");
 	const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
 	const [selectionPopup, setSelectionPopup] = useState<{
 		x: number;
@@ -567,25 +568,45 @@ export function DiffPane(props: {
 					<span className="text-state-error">-{props.diff.stats.deletions}</span>
 				</div>
 				{/* Action buttons */}
-				<div className="mt-2 flex gap-1.5">
+				<div className="mt-2 flex flex-col gap-1.5">
 					{revisionState === "approved" ? (
 						<>
-							<button
-								onClick={props.onApplyRevision}
-								className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
-							>
-								<Play className="h-3 w-3" />
-								Apply
-							</button>
-							{props.session?.mode === "worktree" && (
-								<button
-									onClick={props.onApplyAndMerge}
-									className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
-								>
-									<GitMerge className="h-3 w-3" />
-									Apply & Merge
-								</button>
-							)}
+							{(() => {
+								const done = props.session?.status === "completed" || props.session?.status === "merged";
+								return (
+									<>
+										{props.session?.mode === "worktree" && !done && (
+											<input
+												type="text"
+												value={commitMessage}
+												onChange={(e) => setCommitMessage(e.target.value)}
+												placeholder="Commit message (optional)"
+												className="w-full rounded bg-surface-2 border border-surface-border px-2 py-1 text-xs text-white/80 placeholder-white/30 outline-none focus:border-accent/50"
+											/>
+										)}
+										<div className="flex gap-1.5">
+											<button
+												onClick={props.onApplyRevision}
+												disabled={done}
+												className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium ${done ? "bg-state-applied/40 text-black/40 cursor-not-allowed" : "bg-state-applied text-black"}`}
+											>
+												<Play className="h-3 w-3" />
+												{props.session?.status === "completed" ? "Applied" : "Apply"}
+											</button>
+											{props.session?.mode === "worktree" && (
+												<button
+													onClick={() => props.onApplyAndMerge(commitMessage || undefined)}
+													disabled={done}
+													className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium ${done ? "bg-state-applied/40 text-black/40 cursor-not-allowed" : "bg-state-applied text-black"}`}
+												>
+													<GitMerge className="h-3 w-3" />
+													{props.session?.status === "merged" ? "Merged" : "Apply & Merge"}
+												</button>
+											)}
+										</div>
+									</>
+								);
+							})()}
 						</>
 					) : (
 						<>

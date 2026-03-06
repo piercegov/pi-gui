@@ -5,7 +5,7 @@ function statusColor(status: SessionSummary["status"]) {
 	if (status === "running") return "bg-state-running";
 	if (status === "reviewing") return "bg-state-review";
 	if (status === "error") return "bg-state-error";
-	if (status === "completed") return "bg-state-applied";
+	if (status === "completed" || status === "merged") return "bg-state-applied";
 	return "bg-white/20";
 }
 

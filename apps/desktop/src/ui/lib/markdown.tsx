@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { highlightCode } from "./shiki";
+import { getHighlightedSync, highlightCode } from "./shiki";
 
 function CodeBlock(props: {
 	inline?: boolean;
@@ -10,14 +10,21 @@ function CodeBlock(props: {
 }) {
 	const language = props.className?.replace("language-", "") ?? "text";
 	const code = String(props.children ?? "");
-	const [html, setHtml] = useState<string | null>(null);
+	const [html, setHtml] = useState<string | null>(
+		() => getHighlightedSync(code, language),
+	);
 
 	useEffect(() => {
 		let cancelled = false;
 		if (!props.inline) {
-			void highlightCode(code, language).then((result) => {
-				if (!cancelled) setHtml(result);
-			});
+			const sync = getHighlightedSync(code, language);
+			if (sync) {
+				setHtml(sync);
+			} else {
+				void highlightCode(code, language).then((result) => {
+					if (!cancelled) setHtml(result);
+				});
+			}
 		}
 		return () => {
 			cancelled = true;
@@ -30,7 +37,7 @@ function CodeBlock(props: {
 
 	if (!html) {
 		return (
-			<pre className="overflow-auto mono">
+			<pre className="overflow-auto mono p-3">
 				<code>{code}</code>
 			</pre>
 		);
