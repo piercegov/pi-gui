@@ -1,0 +1,136 @@
+@import "xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--surface-0: #f4efe6;
+	--surface-1: #f8f4ed;
+	--surface-2: #ece5da;
+	--surface-3: #ded5c5;
+	--surface-border: rgba(58, 46, 30, 0.12);
+	--accent: #0f7b6c;
+	--accent-soft: rgba(15, 123, 108, 0.16);
+	--state-running: #0f7b6c;
+	--state-review: #9a6410;
+	--state-error: #b23a2b;
+	--state-applied: #3d6e1f;
+	--ink-strong: #1f1912;
+	--ink-soft: rgba(31, 25, 18, 0.72);
+	--diff-add: rgba(33, 115, 70, 0.14);
+	--diff-del: rgba(163, 55, 40, 0.12);
+	--diff-add-border: rgba(33, 115, 70, 0.28);
+	--diff-del-border: rgba(163, 55, 40, 0.28);
+	color-scheme: light;
+	font-family:
+		"Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background:
+		radial-gradient(circle at top right, rgba(15, 123, 108, 0.08), transparent 24%),
+		radial-gradient(circle at bottom left, rgba(154, 100, 16, 0.08), transparent 22%),
+		linear-gradient(180deg, #faf6ef 0%, #f1e9de 100%);
+	color: var(--ink-strong);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+::-webkit-scrollbar {
+	width: 12px;
+	height: 12px;
+}
+
+::-webkit-scrollbar-thumb {
+	background: rgba(31, 25, 18, 0.12);
+	border: 3px solid transparent;
+	border-radius: 999px;
+	background-clip: padding-box;
+}
+
+.drag-region {
+	-webkit-app-region: drag;
+	app-region: drag;
+}
+
+.no-drag {
+	-webkit-app-region: no-drag;
+	app-region: no-drag;
+}
+
+.surface-panel {
+	background: color-mix(in srgb, var(--surface-1) 88%, white 12%);
+	border: 1px solid var(--surface-border);
+	box-shadow: 0 8px 24px rgba(25, 20, 12, 0.05);
+}
+
+.mono {
+	font-family:
+		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
+}
+
+.markdown {
+	line-height: 1.55;
+	color: var(--ink-strong);
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown blockquote {
+	margin: 0 0 0.8rem;
+}
+
+.markdown code {
+	font-family:
+		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
+}
+
+.diff-shell {
+	--diff-background-color: transparent;
+	--diff-text-color: var(--ink-strong);
+	--diff-font-family:
+		"SF Mono", "IBM Plex Mono", "ui-monospace", "Menlo", monospace;
+	--diff-selection-background-color: rgba(15, 123, 108, 0.16);
+	--diff-code-insert-background-color: var(--diff-add);
+	--diff-code-delete-background-color: var(--diff-del);
+	--diff-code-insert-edit-background-color: var(--diff-add);
+	--diff-code-delete-edit-background-color: var(--diff-del);
+	--diff-gutter-insert-background-color: var(--diff-add);
+	--diff-gutter-delete-background-color: var(--diff-del);
+	--diff-code-insert-border-color: var(--diff-add-border);
+	--diff-code-delete-border-color: var(--diff-del-border);
+	font-size: 12px;
+}
+
+.diff-shell table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.diff-shell td {
+	vertical-align: top;
+}
+
+.xterm {
+	height: 100%;
+	padding: 0.5rem 0.75rem;
+}
