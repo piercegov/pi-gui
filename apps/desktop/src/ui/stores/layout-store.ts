@@ -10,8 +10,8 @@ type LayoutState = {
 	setSettingsOpen: (open: boolean) => void;
 	setSidebarWidth: (width: number) => void;
 	adjustSidebarWidth: (delta: number) => void;
-	setDiffPaneWidth: (width: number) => void;
-	adjustDiffPaneWidth: (delta: number) => void;
+	setDiffPaneWidth: (width: number, maxWidth?: number) => void;
+	adjustDiffPaneWidth: (delta: number, maxWidth?: number) => void;
 };
 
 export const useLayoutStore = create<LayoutState>((set) => ({
@@ -34,10 +34,10 @@ export const useLayoutStore = create<LayoutState>((set) => ({
 	adjustSidebarWidth(delta) {
 		set((state) => ({ sidebarWidth: Math.max(160, Math.min(400, state.sidebarWidth + delta)) }));
 	},
-	setDiffPaneWidth(width) {
-		set({ diffPaneWidth: Math.max(280, Math.min(900, width)) });
+	setDiffPaneWidth(width, maxWidth = 9999) {
+		set({ diffPaneWidth: Math.max(280, Math.min(maxWidth, width)) });
 	},
-	adjustDiffPaneWidth(delta) {
-		set((state) => ({ diffPaneWidth: Math.max(280, Math.min(900, state.diffPaneWidth + delta)) }));
+	adjustDiffPaneWidth(delta, maxWidth = 9999) {
+		set((state) => ({ diffPaneWidth: Math.max(280, Math.min(maxWidth, state.diffPaneWidth + delta)) }));
 	},
 }));

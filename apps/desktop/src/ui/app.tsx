@@ -338,9 +338,9 @@ export function App() {
 				/>
 				</div>
 
-				<ResizeHandle onDrag={(delta) => adjustDiffPaneWidth(-delta)} />
+				<ResizeHandle onDrag={(delta) => adjustDiffPaneWidth(-delta, Math.floor(window.innerWidth * 0.8))} />
 
-				<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: 900 }} className="shrink-0">
+				<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: "80vw" }} className="shrink-0">
 				<DiffPane
 					session={currentSession}
 					inspector={currentInspector}

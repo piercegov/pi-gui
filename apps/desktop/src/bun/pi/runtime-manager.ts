@@ -374,6 +374,8 @@ export class PiRuntimeManager {
 				messageIndex,
 			);
 			if (!entry) return;
+			// Skip user messages — already emitted synthetically by emitUserMessage()
+			if (entry.kind === "user") return;
 			if (entry.kind === "assistant") {
 				entry.status = "streaming";
 				runtime.lastAssistantId = entry.id;
@@ -407,6 +409,8 @@ export class PiRuntimeManager {
 				messageIndex,
 			);
 			if (!entry) return;
+			// Skip user messages — already emitted synthetically by emitUserMessage()
+			if (entry.kind === "user") return;
 			this.emitStreamEvent({
 				type: "message_upsert",
 				entry,
