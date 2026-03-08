@@ -691,6 +691,7 @@ export class ReviewService {
 			if (projectRow) {
 				await this.git.mergeWorktreeBranch({
 					repoRoot: projectRow.root_path,
+					worktreePath: row.worktree_path ?? row.cwd_path,
 					worktreeBranch: row.worktree_branch,
 					baseBranch: row.base_ref,
 				});

@@ -334,17 +334,33 @@ export class GitService {
 
 	async mergeWorktreeBranch(params: {
 		repoRoot: string;
+		worktreePath: string;
 		worktreeBranch: string;
 		baseBranch: string;
 	}) {
+		const rebaseResult = await this.run(
+			["git", "rebase", params.baseBranch],
+			{ cwd: params.worktreePath, allowFailure: true },
+		);
+		if (rebaseResult.exitCode !== 0) {
+			await this.run(["git", "rebase", "--abort"], {
+				cwd: params.worktreePath,
+				allowFailure: true,
+			});
+			throw new Error(
+				`Rebase conflict: ${(rebaseResult.stderr || rebaseResult.stdout).trim()}`,
+			);
+		}
+
 		await this.run(["git", "checkout", params.baseBranch], { cwd: params.repoRoot });
 		const mergeResult = await this.run(
-			["git", "merge", "--no-ff", params.worktreeBranch, "-m", `Merge ${params.worktreeBranch} into ${params.baseBranch}`],
+			["git", "merge", "--ff-only", params.worktreeBranch],
 			{ cwd: params.repoRoot, allowFailure: true },
 		);
 		if (mergeResult.exitCode !== 0) {
-			await this.run(["git", "merge", "--abort"], { cwd: params.repoRoot, allowFailure: true });
-			throw new Error(`Merge conflict: ${mergeResult.stderr}`);
+			throw new Error(
+				`Fast-forward merge failed: ${(mergeResult.stderr || mergeResult.stdout).trim()}`,
+			);
 		}
 	}
 
