@@ -157,6 +157,7 @@ export function App() {
 	const adjustSidebarWidth = useLayoutStore((state) => state.adjustSidebarWidth);
 	const diffPaneWidth = useLayoutStore((state) => state.diffPaneWidth);
 	const adjustDiffPaneWidth = useLayoutStore((state) => state.adjustDiffPaneWidth);
+	const registerTerminal = useTerminalStore((state) => state.registerTerminal);
 	const appendTerminalOutput = useTerminalStore((state) => state.appendOutput);
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
 	const isTerminalRunning = useTerminalStore((state) => state.isRunning);
@@ -431,7 +432,10 @@ export function App() {
 		}
 		const layoutStore = useLayoutStore.getState();
 		if (!layoutStore.terminalOpen) layoutStore.toggleTerminal();
-		await rpc.request.runProjectCommand({ sessionId: currentSession.id });
+		const { terminalId } = await rpc.request.runProjectCommand({
+			sessionId: currentSession.id,
+		});
+		registerTerminal(currentSession.id, terminalId);
 	};
 
 	useEffect(() => {

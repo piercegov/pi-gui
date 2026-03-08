@@ -11,19 +11,17 @@ export function TerminalDrawer(props: {
 	const terminalRef = useRef<HTMLDivElement | null>(null);
 	const xtermRef = useRef<Terminal | null>(null);
 	const fitAddonRef = useRef<FitAddon | null>(null);
+	const openRef = useRef(props.open);
+	openRef.current = props.open;
+	const ensureTerminal = useTerminalStore((state) => state.ensureTerminal);
+	const resizeTerminal = useTerminalStore((state) => state.resize);
 	const output = useTerminalStore((state) =>
 		props.sessionId ? state.output[props.sessionId] ?? "" : "",
 	);
 	const lastOutputLength = useRef(0);
 
 	useEffect(() => {
-		if (
-			!props.supported ||
-			!props.open ||
-			!props.sessionId ||
-			!terminalRef.current ||
-			xtermRef.current
-		) {
+		if (!props.supported || !props.sessionId || !terminalRef.current || xtermRef.current) {
 			return;
 		}
 		const terminal = new Terminal({
@@ -37,16 +35,23 @@ export function TerminalDrawer(props: {
 			},
 		});
 		const fitAddon = new FitAddon();
+		const { sessionId } = props;
 		terminal.loadAddon(fitAddon);
 		terminal.open(terminalRef.current);
-		fitAddon.fit();
 		xtermRef.current = terminal;
 		fitAddonRef.current = fitAddon;
-		void useTerminalStore.getState().ensureTerminal(props.sessionId);
-		terminal.onData((data) => {
-			void useTerminalStore.getState().write(props.sessionId!, data);
+		const fitAndResize = () => {
+			if (!openRef.current) return;
+			fitAddon.fit();
+			void resizeTerminal(sessionId, terminal.cols, terminal.rows);
+		};
+		void ensureTerminal(sessionId).then(() => {
+			fitAndResize();
 		});
-		const observer = new ResizeObserver(() => fitAddon.fit());
+		terminal.onData((data) => {
+			void useTerminalStore.getState().write(sessionId, data);
+		});
+		const observer = new ResizeObserver(() => fitAndResize());
 		observer.observe(terminalRef.current);
 		return () => {
 			observer.disconnect();
@@ -54,11 +59,17 @@ export function TerminalDrawer(props: {
 			xtermRef.current = null;
 			fitAddonRef.current = null;
 		};
-	}, [props.open, props.sessionId, props.supported]);
+	}, [ensureTerminal, props.sessionId, props.supported, resizeTerminal]);
 
 	useEffect(() => {
 		lastOutputLength.current = 0;
 	}, [props.sessionId]);
+
+	useEffect(() => {
+		if (!props.open || !props.sessionId || !fitAddonRef.current || !xtermRef.current) return;
+		fitAddonRef.current.fit();
+		void resizeTerminal(props.sessionId, xtermRef.current.cols, xtermRef.current.rows);
+	}, [props.open, props.sessionId, resizeTerminal]);
 
 	useEffect(() => {
 		if (!xtermRef.current) return;
