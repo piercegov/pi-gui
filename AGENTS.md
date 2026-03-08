@@ -376,3 +376,26 @@ For native UI walkthroughs, use:
 - Prefer explicit, deterministic state transitions.
 - Validate with typecheck and at least one manual smoke path.
 - If uncertain whether a directory is active, confirm before editing.
+
+---
+
+## Cursor Cloud specific instructions
+
+### Environment
+
+- **Bun** must be on `PATH`. The update script handles installation if missing. After the update script runs, Bun and all npm dependencies are ready.
+- **System libraries** required for Electrobun on Linux: `libwebkit2gtk-4.1-0`, `libwebkitgtk-6.0-4`, `libayatana-appindicator3-1`. These are pre-installed in the VM snapshot.
+- `LD_LIBRARY_PATH` must include the Electrobun build `bin/` directory (e.g. `/workspace/build/dev-linux-x64/PiGUI-dev/bin`) for `libasar.so` to resolve at runtime. Set this before running `bun run dev:hmr` or `bun run dev`.
+
+### Running the app
+
+- `bun run dev:hmr` starts both Vite (port 5173) and Electrobun with file watching. This is the recommended dev mode.
+- The pre-build step (`bun run prebuild:providers`) runs automatically via the `dev:hmr` script.
+- On headless Linux, Electrobun may emit non-fatal warnings (`libEGL DRI3`, `X11 GLXBadWindow`, "Application menus not supported on Linux"). These are cosmetic and do not affect functionality.
+- No automated test runner or linter is configured. Validation: `bun run typecheck` and `npx vite build`.
+
+### Validation commands (see CLAUDE.md for full list)
+
+- Typecheck: `bun run typecheck`
+- Frontend build: `npx vite build`
+- Full build: `bun run build`
