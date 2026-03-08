@@ -100,11 +100,49 @@ select {
 }
 
 .markdown p,
-.markdown ul,
-.markdown ol,
 .markdown pre,
 .markdown blockquote {
 	margin: 0 0 0.65rem;
+}
+
+.markdown ul,
+.markdown ol {
+	margin: 0 0 0.65rem;
+	padding-left: 1.25rem;
+}
+
+.markdown ul {
+	list-style: disc;
+}
+
+.markdown ol {
+	list-style: decimal;
+}
+
+.markdown ul ul {
+	list-style: circle;
+}
+
+.markdown ul ul ul {
+	list-style: square;
+}
+
+.markdown ol ol {
+	list-style: lower-alpha;
+}
+
+.markdown ol ol ol {
+	list-style: lower-roman;
+}
+
+.markdown li {
+	margin: 0.2rem 0;
+}
+
+.markdown blockquote {
+	border-left: 2px solid var(--surface-border);
+	padding-left: 0.75rem;
+	color: var(--ink-muted);
 }
 
 .markdown {

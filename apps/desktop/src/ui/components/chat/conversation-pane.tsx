@@ -13,11 +13,18 @@ function isToolCallOnly(entry: ConversationEntryView): boolean {
 
 /** Strip tool-call list lines from assistant markdown, returning only real text. */
 function stripToolCallLines(markdown: string): string {
-	return markdown
+	const lines = markdown
 		.split("\n")
-		.filter((line) => !/^-\s*`[^`]+`\s*$/.test(line.trim()))
-		.join("\n")
-		.trim();
+		.filter((line) => !/^-\s*`[^`]+`\s*$/.test(line.trim()));
+
+	while (lines.length > 0 && lines[0].trim() === "") {
+		lines.shift();
+	}
+	while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+		lines.pop();
+	}
+
+	return lines.join("\n");
 }
 
 type TurnContentBlock =
