@@ -771,7 +771,7 @@ export class ReviewService {
 
 		if (!fromRef || !toRef) {
 			// Return empty diff
-			return this.checkpoints.storeDiffSnapshot({
+			return this.checkpoints.buildTransientDiffSnapshot({
 				sessionId,
 				scope: "session_changes",
 				title,
@@ -780,11 +780,20 @@ export class ReviewService {
 				toLabel,
 				patch: "",
 				stats: { filesChanged: 0, additions: 0, deletions: 0, fileStats: [] },
+				cacheParts: [
+					"revision",
+					sessionId,
+					revisionNumber,
+					mode,
+					fromRef,
+					toRef,
+					"empty",
+				],
 			});
 		}
 
 		const diff = await this.git.diffBetweenRefs(cwdPath, fromRef, toRef);
-		const snapshot = this.checkpoints.storeDiffSnapshot({
+		const snapshot = this.checkpoints.buildTransientDiffSnapshot({
 			sessionId,
 			scope: "session_changes",
 			title,
@@ -793,6 +802,14 @@ export class ReviewService {
 			toLabel,
 			patch: diff.patch,
 			stats: diff.stats,
+			cacheParts: [
+				"revision",
+				sessionId,
+				revisionNumber,
+				mode,
+				fromRef,
+				toRef,
+			],
 		});
 		// Add revision metadata
 		return {

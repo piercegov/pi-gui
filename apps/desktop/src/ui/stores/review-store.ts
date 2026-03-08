@@ -8,7 +8,11 @@ import type {
 	SessionHydration,
 	ThreadResolution,
 } from "@shared/models";
+import { recordDiffPerf } from "@ui/lib/diff-perf";
 import { rpc } from "@ui/lib/rpc-client";
+
+const DIFF_REFRESH_DEBOUNCE_MS = 180;
+let diffRefreshTimer: number | undefined;
 
 type ReviewState = {
 	sessionId?: string;
@@ -18,8 +22,10 @@ type ReviewState = {
 	diffMode: DiffMode;
 	currentDiff?: DiffSnapshotView;
 	diffStale: boolean;
+	reviewPaneVisible: boolean;
 	_diffRequestId: number;
 	hydrate: (hydration: SessionHydration) => void;
+	setReviewPaneVisible: (visible: boolean) => void;
 	setSelectedRevision: (n: number) => void;
 	setDiffMode: (mode: DiffMode) => void;
 	buildRevisionDiff: (revisionNumber: number, mode: DiffMode) => Promise<void>;
@@ -46,6 +52,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	diffMode: "incremental",
 	currentDiff: undefined,
 	diffStale: false,
+	reviewPaneVisible: true,
 	_diffRequestId: 0,
 	hydrate(hydration) {
 		const activeNum = hydration.activeRevisionNumber;
@@ -62,12 +69,38 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 			void get().buildRevisionDiff(activeNum, "incremental");
 		}
 	},
+	setReviewPaneVisible(visible) {
+		set({ reviewPaneVisible: visible });
+		if (!visible) return;
+		if (!get().diffStale) return;
+		if (typeof window !== "undefined" && diffRefreshTimer !== undefined) {
+			window.clearTimeout(diffRefreshTimer);
+			diffRefreshTimer = undefined;
+		}
+		const selectedRev = get().selectedRevisionNumber ?? get().activeRevisionNumber;
+		if (selectedRev !== undefined) {
+			void get().buildRevisionDiff(selectedRev, get().diffMode);
+			return;
+		}
+		const sessionId = get().sessionId;
+		if (sessionId) {
+			void get().buildSessionDiffFallback(sessionId);
+		}
+	},
 	setSelectedRevision(n) {
-		set({ selectedRevisionNumber: n });
+		set((state) => ({
+			selectedRevisionNumber: n,
+			diffStale: state.reviewPaneVisible ? state.diffStale : true,
+		}));
+		if (!get().reviewPaneVisible) return;
 		void get().buildRevisionDiff(n, get().diffMode);
 	},
 	setDiffMode(mode) {
-		set({ diffMode: mode });
+		set((state) => ({
+			diffMode: mode,
+			diffStale: state.reviewPaneVisible ? state.diffStale : true,
+		}));
+		if (!get().reviewPaneVisible) return;
 		const selectedRev = get().selectedRevisionNumber;
 		if (selectedRev !== undefined) {
 			void get().buildRevisionDiff(selectedRev, mode);
@@ -79,8 +112,21 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		const requestId = get()._diffRequestId + 1;
 		set({ _diffRequestId: requestId });
 		try {
+			const requestedAt = performance.now();
 			const diff = await rpc.request.buildRevisionDiff({ sessionId, revisionNumber, mode });
 			if (get()._diffRequestId !== requestId) return; // superseded
+			recordDiffPerf({
+				kind: "diff_request",
+				diffId: diff.id,
+				durationMs: performance.now() - requestedAt,
+				timestamp: Date.now(),
+				metadata: {
+					scope: "revision",
+					revisionNumber,
+					mode,
+					cacheKey: diff.cacheKey,
+				},
+			});
 			set({
 				currentDiff: diff,
 				diffStale: false,
@@ -94,8 +140,19 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		const requestId = get()._diffRequestId + 1;
 		set({ _diffRequestId: requestId });
 		try {
+			const requestedAt = performance.now();
 			const diff = await rpc.request.buildSessionDiff({ sessionId });
 			if (get()._diffRequestId !== requestId) return; // superseded
+			recordDiffPerf({
+				kind: "diff_request",
+				diffId: diff?.id,
+				durationMs: performance.now() - requestedAt,
+				timestamp: Date.now(),
+				metadata: {
+					scope: "session_changes",
+					cacheKey: diff?.cacheKey ?? "empty",
+				},
+			});
 			set({
 				currentDiff: diff ?? undefined,
 				diffStale: false,
@@ -191,11 +248,29 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	markStale(sessionId, _revisionNumber) {
 		if (sessionId !== get().sessionId) return;
 		set({ diffStale: true });
-		const selectedRev = get().selectedRevisionNumber ?? get().activeRevisionNumber;
-		if (selectedRev !== undefined) {
-			void get().buildRevisionDiff(selectedRev, get().diffMode);
-		} else {
-			void get().buildSessionDiffFallback(sessionId);
+		if (!get().reviewPaneVisible) return;
+		if (typeof window === "undefined") {
+			const selectedRev = get().selectedRevisionNumber ?? get().activeRevisionNumber;
+			if (selectedRev !== undefined) {
+				void get().buildRevisionDiff(selectedRev, get().diffMode);
+			} else {
+				void get().buildSessionDiffFallback(sessionId);
+			}
+			return;
 		}
+		if (diffRefreshTimer !== undefined) {
+			window.clearTimeout(diffRefreshTimer);
+		}
+		diffRefreshTimer = window.setTimeout(() => {
+			diffRefreshTimer = undefined;
+			const state = get();
+			if (!state.reviewPaneVisible || !state.diffStale) return;
+			const selectedRev = state.selectedRevisionNumber ?? state.activeRevisionNumber;
+			if (selectedRev !== undefined) {
+				void state.buildRevisionDiff(selectedRev, state.diffMode);
+			} else if (state.sessionId) {
+				void state.buildSessionDiffFallback(state.sessionId);
+			}
+		}, DIFF_REFRESH_DEBOUNCE_MS);
 	},
 }));
