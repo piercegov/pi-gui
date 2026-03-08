@@ -25,6 +25,7 @@ type ReviewState = {
 	reviewPaneVisible: boolean;
 	_diffRequestId: number;
 	hydrate: (hydration: SessionHydration) => void;
+	clear: () => void;
 	setReviewPaneVisible: (visible: boolean) => void;
 	setSelectedRevision: (n: number) => void;
 	setDiffMode: (mode: DiffMode) => void;
@@ -56,18 +57,34 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	_diffRequestId: 0,
 	hydrate(hydration) {
 		const activeNum = hydration.activeRevisionNumber;
+		const latestRevisionNumber = hydration.revisions.at(-1)?.revisionNumber;
+		const selectedRevisionNumber = activeNum ?? latestRevisionNumber;
+		const initialDiffMode = hydration.currentDiff?.diffMode ?? "incremental";
 		set({
 			sessionId: hydration.session.id,
 			revisions: hydration.revisions,
 			activeRevisionNumber: activeNum,
-			selectedRevisionNumber: activeNum,
-			diffMode: "incremental",
+			selectedRevisionNumber,
+			diffMode: initialDiffMode,
 			currentDiff: hydration.currentDiff,
 			diffStale: false,
 		});
-		if (!hydration.currentDiff && activeNum !== undefined) {
-			void get().buildRevisionDiff(activeNum, "incremental");
+		if (!hydration.currentDiff && selectedRevisionNumber !== undefined) {
+			void get().buildRevisionDiff(selectedRevisionNumber, initialDiffMode);
 		}
+	},
+	clear() {
+		set({
+			sessionId: undefined,
+			revisions: [],
+			activeRevisionNumber: undefined,
+			selectedRevisionNumber: undefined,
+			diffMode: "incremental",
+			currentDiff: undefined,
+			diffStale: false,
+			reviewPaneVisible: true,
+			_diffRequestId: 0,
+		});
 	},
 	setReviewPaneVisible(visible) {
 		set({ reviewPaneVisible: visible });
@@ -198,10 +215,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	},
 	async createThread(anchor, body) {
 		const state = get();
+		if (state.selectedRevisionNumber !== state.activeRevisionNumber) return;
 		const activeRevision = state.revisions.find(
 			(r) => r.revisionNumber === state.activeRevisionNumber,
 		);
-		if (!activeRevision) return;
+		if (!activeRevision || activeRevision.state !== "active") return;
 		await rpc.request.createThread({
 			reviewRoundId: activeRevision.id,
 			anchor,

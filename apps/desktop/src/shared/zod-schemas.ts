@@ -283,6 +283,11 @@ export const appSettingsSchema = z.object({
 	archiveRetentionPolicy: z.enum(["manual", "30d", "90d"]),
 	showArchived: z.boolean(),
 	uiDensity: z.enum(["compact", "comfortable"]),
+	accentColor: z.string(),
+	stateRunningColor: z.string(),
+	stateReviewColor: z.string(),
+	stateErrorColor: z.string(),
+	stateAppliedColor: z.string(),
 	environmentOverrides: z.record(z.string(), z.string()).optional(),
 	shellEnvTimeoutMs: z.number().int().optional(),
 });

@@ -128,6 +128,9 @@ review.setSessionRefresh(async (sessionId) => {
 	const summary = await sessions.getSessionSummary(sessionId);
 	if (summary) messenger.sessionSummaryUpdated(summary);
 });
+review.setSessionStateRefresh(async (sessionId) => {
+	await sessions.refreshSessionState(sessionId);
+});
 runtime.setReviewBridge({
 	isFreezeActive: (sessionId) => review.isFreezeActive(sessionId),
 	getActiveRevisionId: (sessionId) => review.getActiveRevisionId(sessionId),

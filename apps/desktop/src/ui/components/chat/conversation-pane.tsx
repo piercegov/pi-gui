@@ -3,6 +3,8 @@ import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2,
 import type { CheckpointSummaryView, ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 
+const shortcutModifierLabel = navigator.userAgent.includes("Mac") ? "Cmd" : "Ctrl";
+
 /** Returns true if an assistant entry contains only tool-call references (no real text). */
 function isToolCallOnly(entry: ConversationEntryView): boolean {
 	if (entry.kind !== "assistant") return false;
@@ -430,7 +432,9 @@ export function ConversationPane(props: {
 					/>
 					<div className="mt-2 flex items-center justify-between">
 						<span className="text-2xs text-white/20">
-							{busy ? "Session is running" : "Cmd+Enter to send"}
+							{busy
+								? "Session is running"
+								: `${shortcutModifierLabel}+Enter to send`}
 						</span>
 						<div className="flex items-center gap-1">
 							{busy ? (

@@ -231,6 +231,10 @@ export class SessionService {
 		await this.refreshAndPublishSession(sessionId);
 	}
 
+	async refreshSessionState(sessionId: string) {
+		await this.refreshGitStatus(sessionId);
+	}
+
 	private async ensureRuntime(sessionId: string) {
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
@@ -285,7 +289,7 @@ export class SessionService {
 		) {
 			throw new Error("Model provider and model id must both be provided.");
 		}
-		const mode =
+		let mode =
 			project.isGit && (params.mode ?? settings.defaultSessionMode) === "worktree"
 				? "worktree"
 				: "local";
@@ -293,10 +297,14 @@ export class SessionService {
 			params.baseRef ??
 			project.defaultBaseRef ??
 			(project.isGit ? await this.git.getDefaultBaseRef(project.rootPath) : undefined);
+		const hasWorktreeBaseRef = typeof baseRef === "string" && baseRef.length > 0;
+		const canUseWorktreeBaseRef = hasWorktreeBaseRef
+			? await this.git.isCommitRef(project.rootPath, baseRef)
+			: false;
 		let cwdPath = project.rootPath;
 		let worktreePath: string | undefined;
 		let worktreeBranch: string | undefined;
-		if (mode === "worktree" && project.isGit && baseRef) {
+		if (mode === "worktree" && project.isGit && baseRef && canUseWorktreeBaseRef) {
 			worktreeBranch = this.git.buildSessionBranchName(project.name, sessionId);
 			worktreePath = this.git.getManagedWorktreePath(
 				project.id,
@@ -310,6 +318,8 @@ export class SessionService {
 				branchName: worktreeBranch,
 			});
 			cwdPath = worktreePath;
+		} else if (mode === "worktree") {
+			mode = "local";
 		}
 		const session = await this.runtime.createSession({
 			id: sessionId,
@@ -385,12 +395,18 @@ export class SessionService {
 		const session = (await this.getSessionSummary(sessionId))!;
 		const revisions = this.review.listRevisions(sessionId);
 		const activeRevisionNumber = this.review.getActiveRevisionNumber(sessionId);
+		const selectedRevisionNumber =
+			activeRevisionNumber ?? revisions.at(-1)?.revisionNumber;
 
-		// Build initial diff: latest revision's cumulative diff, or session_changes
+		// Build initial diff for the actionable revision, or fall back to session changes.
 		let currentDiff: DiffSnapshotView | undefined;
-		if (activeRevisionNumber !== undefined) {
+		if (selectedRevisionNumber !== undefined) {
 			try {
-				currentDiff = await this.review.buildRevisionDiff(sessionId, activeRevisionNumber, "incremental");
+				currentDiff = await this.review.buildRevisionDiff(
+					sessionId,
+					selectedRevisionNumber,
+					"incremental",
+				);
 			} catch {
 				// Ignore diff build failures
 			}

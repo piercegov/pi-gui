@@ -82,6 +82,14 @@ export class GitService {
 		return (await this.getCurrentBranch(path)) ?? (await this.getCurrentHead(path));
 	}
 
+	async isCommitRef(cwd: string, ref: string) {
+		const result = await this.run(
+			["git", "rev-parse", "--verify", `${ref}^{commit}`],
+			{ cwd, allowFailure: true },
+		);
+		return result.exitCode === 0;
+	}
+
 	async createWorktree(params: {
 		repoRoot: string;
 		worktreePath: string;

@@ -5,6 +5,7 @@ type TerminalSession = {
 	sessionId: string;
 	terminal: Bun.Terminal;
 	process: Bun.Subprocess;
+	finalize: (exitCode: number) => void;
 };
 
 function isFishShell(shell: string) {
@@ -27,6 +28,7 @@ function buildShellCommand(shell: string) {
 
 export class TerminalService {
 	private readonly terminals = new Map<string, TerminalSession>();
+	private readonly terminalIdBySession = new Map<string, string>();
 
 	constructor(private readonly messenger: HostMessenger) {}
 
@@ -41,7 +43,30 @@ export class TerminalService {
 			);
 		}
 
+		const existingTerminalId = this.terminalIdBySession.get(params.sessionId);
+		if (existingTerminalId) {
+			const existing = this.terminals.get(existingTerminalId);
+			if (existing) {
+				return { terminalId: existing.id };
+			}
+			this.terminalIdBySession.delete(params.sessionId);
+		}
+
 		const id = crypto.randomUUID();
+		let finalized = false;
+		const finalize = (exitCode: number) => {
+			if (finalized) return;
+			finalized = true;
+			this.terminals.delete(id);
+			if (this.terminalIdBySession.get(params.sessionId) === id) {
+				this.terminalIdBySession.delete(params.sessionId);
+			}
+			this.messenger.terminalExit({
+				terminalId: id,
+				sessionId: params.sessionId,
+				exitCode,
+			});
+		};
 		const terminal = new Bun.Terminal({
 			cols: 120,
 			rows: 30,
@@ -53,11 +78,7 @@ export class TerminalService {
 				});
 			},
 			exit: (_terminal, code) => {
-				this.messenger.terminalExit({
-					terminalId: id,
-					sessionId: params.sessionId,
-					exitCode: code,
-				});
+				finalize(code);
 			},
 		});
 		const proc = Bun.spawn(buildShellCommand(params.shell), {
@@ -70,13 +91,11 @@ export class TerminalService {
 			sessionId: params.sessionId,
 			terminal,
 			process: proc,
+			finalize,
 		});
+		this.terminalIdBySession.set(params.sessionId, id);
 		void proc.exited.then((exitCode) => {
-			this.messenger.terminalExit({
-				terminalId: id,
-				sessionId: params.sessionId,
-				exitCode,
-			});
+			finalize(exitCode);
 		});
 		return { terminalId: id };
 	}
@@ -96,8 +115,8 @@ export class TerminalService {
 	close(terminalId: string) {
 		const session = this.terminals.get(terminalId);
 		if (!session) return;
-		session.terminal.close();
 		session.process.kill();
-		this.terminals.delete(terminalId);
+		session.terminal.close();
+		session.finalize(typeof session.process.exitCode === "number" ? session.process.exitCode : 0);
 	}
 }

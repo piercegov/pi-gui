@@ -71,6 +71,16 @@ export function MarkdownRenderer(props: { markdown: string; className?: string }
 						return (
 							<a
 								href={safeHref}
+								target={safeHref ? "_blank" : undefined}
+								rel={safeHref ? "noreferrer noopener" : undefined}
+								onClick={(event) => {
+									if (!safeHref) {
+										event.preventDefault();
+										return;
+									}
+									event.preventDefault();
+									window.open(safeHref, "_blank", "noopener,noreferrer");
+								}}
 								className="text-accent underline underline-offset-2"
 							>
 								{children}

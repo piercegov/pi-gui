@@ -68,6 +68,7 @@ type RuntimeReviewBridge = {
 export class ReviewService {
 	private runtimeBridge?: RuntimeReviewBridge;
 	private sessionRefresh?: (sessionId: string) => Promise<void>;
+	private sessionStateRefresh?: (sessionId: string) => Promise<void>;
 
 	constructor(
 		private readonly db: AppDb,
@@ -84,10 +85,22 @@ export class ReviewService {
 		this.sessionRefresh = refresh;
 	}
 
+	setSessionStateRefresh(refresh: (sessionId: string) => Promise<void>) {
+		this.sessionStateRefresh = refresh;
+	}
+
 	private async refreshSession(sessionId: string) {
 		if (this.sessionRefresh) {
 			await this.sessionRefresh(sessionId);
 		}
+	}
+
+	private async refreshSessionState(sessionId: string) {
+		if (this.sessionStateRefresh) {
+			await this.sessionStateRefresh(sessionId);
+			return;
+		}
+		await this.refreshSession(sessionId);
 	}
 
 	buildReviewMarkdown(reviewRoundId: string) {
@@ -300,6 +313,9 @@ export class ReviewService {
 	async createThread(reviewRoundId: string, anchor: CommentAnchor, body: string) {
 		const round = this.getRevision(reviewRoundId);
 		if (!round) throw new Error("Revision not found.");
+		if (round.state !== "active") {
+			throw new Error("Comments can only be added to the active revision.");
+		}
 		const id = crypto.randomUUID();
 		const now = Date.now();
 		this.db.transaction(() => {
@@ -662,7 +678,8 @@ export class ReviewService {
 			Date.now(),
 			sessionId,
 		);
-		await this.refreshSession(sessionId);
+		this.messenger.diffInvalidated({ sessionId });
+		await this.refreshSessionState(sessionId);
 	}
 
 	async applyAndMerge(sessionId: string, commitMessage?: string) {
@@ -703,7 +720,8 @@ export class ReviewService {
 			Date.now(),
 			sessionId,
 		);
-		await this.refreshSession(sessionId);
+		this.messenger.diffInvalidated({ sessionId });
+		await this.refreshSessionState(sessionId);
 	}
 
 	async buildRevisionDiff(
