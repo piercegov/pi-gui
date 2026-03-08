@@ -145,21 +145,19 @@ export function PerfOverlay() {
 				<div className="text-white/60">
 					{stats.frameTime} ms avg · {stats.frameTimeMax} ms max
 				</div>
-				{stats.reactCommits > 0 && (
-					<div className="mt-1 border-t border-white/10 pt-1">
-						<div className="text-blue-300">
-							{stats.reactCommits} renders/s
-						</div>
+				<div className="mt-1 border-t border-white/10 pt-1">
+					<div className={stats.reactCommits > 0 ? "text-blue-300" : "text-white/40"}>
+						{stats.reactCommits} renders/s
+					</div>
+					{stats.reactCommits > 0 && (
 						<div className="text-white/60">
 							{stats.reactAvg} ms avg · {stats.reactMax} ms max
 						</div>
-					</div>
-				)}
-				{stats.longTasks > 0 && (
-					<div className="text-red-300 mt-0.5">
-						{stats.longTasks} long tasks
-					</div>
-				)}
+					)}
+				</div>
+				<div className={stats.longTasks > 0 ? "text-red-300" : "text-white/40"}>
+					{stats.longTasks} long tasks
+				</div>
 			</div>
 		</div>
 	);
