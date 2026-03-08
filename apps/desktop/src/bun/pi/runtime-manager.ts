@@ -9,6 +9,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type {
 	ConversationEntryView,
+	ContextUsageView,
 	PiConfigSummary,
 	SessionTreeNodeView,
 	SessionStreamEvent,
@@ -167,6 +168,33 @@ export class PiRuntimeManager {
 
 	private emitStreamEvent(event: SessionStreamEvent) {
 		this.messenger.sessionEvent(event);
+	}
+
+	private emitContextUsage(runtime: ManagedRuntime) {
+		const usage = runtime.session.getContextUsage();
+		if (!usage) return;
+		this.emitStreamEvent({
+			type: "context_usage",
+			usage: {
+				sessionId: runtime.record.id,
+				tokens: usage.tokens,
+				contextWindow: usage.contextWindow,
+				percent: usage.percent,
+			},
+		});
+	}
+
+	getContextUsage(sessionId: string): ContextUsageView | undefined {
+		const runtime = this.runtimes.get(sessionId);
+		if (!runtime) return undefined;
+		const usage = runtime.session.getContextUsage();
+		if (!usage) return undefined;
+		return {
+			sessionId,
+			tokens: usage.tokens,
+			contextWindow: usage.contextWindow,
+			percent: usage.percent,
+		};
 	}
 
 	private mapPiConfig(runtime: ManagedRuntime): PiConfigSummary {
@@ -436,6 +464,7 @@ export class PiRuntimeManager {
 				type: "message_upsert",
 				entry,
 			});
+			this.emitContextUsage(runtime);
 			return;
 		}
 		if (event.type === "tool_execution_start") {

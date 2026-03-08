@@ -272,6 +272,13 @@ export const appSettingsSchema = z.object({
 	shellEnvTimeoutMs: z.number().int().optional(),
 });
 
+export const contextUsageSchema = z.object({
+	sessionId: z.string(),
+	tokens: z.number().nullable(),
+	contextWindow: z.number().int(),
+	percent: z.number().nullable(),
+});
+
 export const sessionHydrationSchema = z.object({
 	project: projectSummarySchema,
 	session: sessionSummarySchema,
@@ -282,6 +289,7 @@ export const sessionHydrationSchema = z.object({
 	activeRevisionNumber: z.number().int().optional(),
 	currentDiff: diffSnapshotSchema.optional(),
 	appSettings: appSettingsSchema,
+	contextUsage: contextUsageSchema.optional(),
 	supportsEmbeddedTerminal: z.boolean(),
 	piConfig: piConfigSummarySchema,
 });
@@ -324,6 +332,10 @@ export const sessionStreamEventSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("checkpoint_created"),
 		checkpoint: checkpointSummarySchema,
+	}),
+	z.object({
+		type: z.literal("context_usage"),
+		usage: contextUsageSchema,
 	}),
 	z.object({
 		type: z.literal("error"),

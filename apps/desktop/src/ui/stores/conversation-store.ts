@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
 	CheckpointSummaryView,
+	ContextUsageView,
 	ConversationEntryView,
 	SessionHydration,
 	SessionStreamEvent,
@@ -12,6 +13,7 @@ type ConversationState = {
 	entries: ConversationEntryView[];
 	toolActivity: ToolActivityView[];
 	checkpoints: CheckpointSummaryView[];
+	contextUsage?: ContextUsageView;
 	hydrate: (hydration: SessionHydration) => void;
 	applyEvent: (event: SessionStreamEvent) => void;
 };
@@ -21,12 +23,14 @@ export const useConversationStore = create<ConversationState>((set) => ({
 	entries: [],
 	toolActivity: [],
 	checkpoints: [],
+	contextUsage: undefined,
 	hydrate(hydration) {
 		set({
 			sessionId: hydration.session.id,
 			entries: hydration.conversation,
 			toolActivity: hydration.toolActivity,
 			checkpoints: hydration.checkpoints,
+			contextUsage: hydration.contextUsage,
 		});
 	},
 	applyEvent(event) {
@@ -71,6 +75,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
 				return {
 					...state,
 					checkpoints: [...state.checkpoints, event.checkpoint],
+				};
+			}
+			if (event.type === "context_usage") {
+				if (event.usage.sessionId !== state.sessionId) return state;
+				return {
+					...state,
+					contextUsage: event.usage,
 				};
 			}
 			return state;

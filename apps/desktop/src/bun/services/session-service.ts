@@ -388,6 +388,7 @@ export class SessionService {
 			revisions,
 			activeRevisionNumber,
 			currentDiff: currentDiff ?? undefined,
+			contextUsage: this.runtime.getContextUsage(sessionId),
 			appSettings: this.settings.getAppSettings(),
 			supportsEmbeddedTerminal: process.platform !== "win32",
 			piConfig: this.runtime.getPiConfigSummary(sessionId),

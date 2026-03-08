@@ -273,6 +273,7 @@ export interface SessionHydration {
 	activeRevisionNumber?: number;
 	currentDiff?: DiffSnapshotView;
 	appSettings: AppSettings;
+	contextUsage?: ContextUsageView;
 	supportsEmbeddedTerminal: boolean;
 	piConfig: PiConfigSummary;
 }
@@ -284,6 +285,13 @@ export interface SessionInspectorView {
 	worktreeMissing: boolean;
 	checkpoints: CheckpointSummaryView[];
 	tree: SessionTreeNodeView[];
+}
+
+export interface ContextUsageView {
+	sessionId: string;
+	tokens: number | null;
+	contextWindow: number;
+	percent: number | null;
 }
 
 export interface ToastMessage {
@@ -315,6 +323,10 @@ export type SessionStreamEvent =
 	| {
 			type: "checkpoint_created";
 			checkpoint: CheckpointSummaryView;
+	  }
+	| {
+			type: "context_usage";
+			usage: ContextUsageView;
 	  }
 	| {
 			type: "error";

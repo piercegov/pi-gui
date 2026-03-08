@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SessionHydration, SessionSummary, ToastMessage } from "@shared/models";
+import type { ContextUsageView, SessionHydration, SessionSummary, ToastMessage } from "@shared/models";
 import { rpc } from "@ui/lib/rpc-client";
 import { useConversationStore } from "@ui/stores/conversation-store";
 import { useLayoutStore } from "@ui/stores/layout-store";
@@ -52,6 +52,38 @@ function ResizeHandle(props: {
 	);
 }
 
+function formatTokenCount(tokens: number): string {
+	if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+	if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+	return String(tokens);
+}
+
+function ContextUsageBar({ usage }: { usage: ContextUsageView }) {
+	const percent = usage.percent ?? 0;
+	const barColor =
+		percent >= 90
+			? "bg-state-error"
+			: percent >= 75
+				? "bg-state-review"
+				: "bg-accent";
+	const label =
+		usage.tokens !== null
+			? `${formatTokenCount(usage.tokens)} / ${formatTokenCount(usage.contextWindow)} (${Math.round(percent)}%)`
+			: `${formatTokenCount(usage.contextWindow)} context`;
+
+	return (
+		<div className="flex items-center gap-1.5" title={`Context: ${label}`}>
+			<div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/8">
+				<div
+					className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+					style={{ width: `${Math.min(percent, 100)}%` }}
+				/>
+			</div>
+			<span className="text-2xs text-white/30">{label}</span>
+		</div>
+	);
+}
+
 export function App() {
 	const { projects, selectedProjectId, loadProjects, addProject, removeProject, selectProject } =
 		useProjectsStore();
@@ -70,7 +102,7 @@ export function App() {
 		upsertSummary,
 		currentHydration,
 	} = useSessionsStore();
-	const { entries, toolActivity, checkpoints, hydrate: hydrateConversation, applyEvent } =
+	const { entries, toolActivity, checkpoints, contextUsage, hydrate: hydrateConversation, applyEvent } =
 		useConversationStore();
 	const review = useReviewStore();
 	const settings = useSettingsStore((state) => state.settings);
@@ -478,7 +510,12 @@ export function App() {
 			{/* Status bar */}
 			<div className="flex h-6 shrink-0 items-center justify-between border-t border-surface-border bg-surface-0 px-3 text-2xs text-white/25">
 				<span>{currentSession ? `${currentSession.mode} · ${currentSession.reviewState}` : "No session"}</span>
-				<span>{currentSession?.modelLabel ?? ""}</span>
+				<div className="flex items-center gap-3">
+					{contextUsage ? (
+						<ContextUsageBar usage={contextUsage} />
+					) : null}
+					<span>{currentSession?.modelLabel ?? ""}</span>
+				</div>
 			</div>
 
 			{/* Toasts */}
