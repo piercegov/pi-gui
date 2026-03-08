@@ -157,10 +157,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	},
 	async createThread(anchor, body) {
 		const state = get();
+		if (state.selectedRevisionNumber !== state.activeRevisionNumber) return;
 		const activeRevision = state.revisions.find(
 			(r) => r.revisionNumber === state.activeRevisionNumber,
 		);
-		if (!activeRevision) return;
+		if (!activeRevision || activeRevision.state !== "active") return;
 		await rpc.request.createThread({
 			reviewRoundId: activeRevision.id,
 			anchor,

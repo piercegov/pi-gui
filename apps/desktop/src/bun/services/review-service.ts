@@ -300,6 +300,9 @@ export class ReviewService {
 	async createThread(reviewRoundId: string, anchor: CommentAnchor, body: string) {
 		const round = this.getRevision(reviewRoundId);
 		if (!round) throw new Error("Revision not found.");
+		if (round.state !== "active") {
+			throw new Error("Comments can only be added to the active revision.");
+		}
 		const id = crypto.randomUUID();
 		const now = Date.now();
 		this.db.transaction(() => {

@@ -51,11 +51,12 @@ function ResolutionBadge(props: { resolution: ThreadResolution }) {
 
 function InlineThread(props: {
 	threads: CommentThreadView[];
+	readOnly: boolean;
 	onReply: (threadId: string, body: string) => Promise<void>;
 	onResolve: (threadId: string, resolution: ThreadResolution) => Promise<void>;
 	onReopen: (threadId: string) => Promise<void>;
 }) {
-	const [replyBody, setReplyBody] = useState("");
+	const [replyBodies, setReplyBodies] = useState<Record<string, string>>({});
 	const [minimized, setMinimized] = useState(false);
 
 	const totalMessages = props.threads.reduce((sum, t) => sum + t.messages.length, 0);
@@ -114,7 +115,11 @@ function InlineThread(props: {
 						))}
 					</div>
 					<div className="mt-2 flex gap-1.5">
-						{thread.status !== "resolved" ? (
+						{props.readOnly ? (
+							<span className="text-2xs text-white/35">
+								Historical revisions are read-only.
+							</span>
+						) : thread.status !== "resolved" ? (
 							<>
 								<button
 									onClick={() => props.onResolve(thread.id, "no_changes")}
@@ -140,30 +145,40 @@ function InlineThread(props: {
 							</button>
 						)}
 					</div>
+					{!props.readOnly ? (
+						<div className="pt-2">
+							<textarea
+								value={replyBodies[thread.id] ?? ""}
+								onChange={(event) =>
+									setReplyBodies((current) => ({
+										...current,
+										[thread.id]: event.target.value,
+									}))
+								}
+								rows={2}
+								placeholder="Reply..."
+								className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+							/>
+							<div className="mt-1.5 flex justify-end">
+								<button
+									onClick={async () => {
+										const replyBody = replyBodies[thread.id]?.trim();
+										if (!replyBody) return;
+										await props.onReply(thread.id, replyBody);
+										setReplyBodies((current) => ({
+											...current,
+											[thread.id]: "",
+										}));
+									}}
+									className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
+								>
+									Reply
+								</button>
+							</div>
+						</div>
+					) : null}
 				</div>
 			))}
-
-			<div className="pt-1">
-				<textarea
-					value={replyBody}
-					onChange={(event) => setReplyBody(event.target.value)}
-					rows={2}
-					placeholder="Reply..."
-					className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
-				/>
-				<div className="mt-1.5 flex justify-end">
-					<button
-						onClick={async () => {
-							if (!replyBody.trim() || props.threads.length === 0) return;
-							await props.onReply(props.threads[0].id, replyBody);
-							setReplyBody("");
-						}}
-						className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
-					>
-						Reply
-					</button>
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -219,6 +234,7 @@ function buildWidgetsForFile(params: {
 	threadIndex: Map<string, CommentThreadView[]>;
 	draftAnchor: CommentAnchor | null;
 	draftBody: string;
+	readOnly: boolean;
 	onReplyToThread: (threadId: string, body: string) => Promise<void>;
 	onResolveThread: (threadId: string, resolution: ThreadResolution) => Promise<void>;
 	onReopenThread: (threadId: string) => Promise<void>;
@@ -259,12 +275,13 @@ function buildWidgetsForFile(params: {
 							{threads.length > 0 ? (
 								<InlineThread
 									threads={threads}
+									readOnly={params.readOnly}
 									onReply={params.onReplyToThread}
 									onResolve={params.onResolveThread}
 									onReopen={params.onReopenThread}
 								/>
 							) : null}
-							{isDraft ? (
+							{isDraft && !params.readOnly ? (
 								<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
 									<textarea
 										value={params.draftBody}
@@ -371,6 +388,18 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		() => props.revisions.find((r) => r.revisionNumber === props.selectedRevisionNumber),
 		[props.revisions, props.selectedRevisionNumber],
 	);
+	const latestRevisionNumber = props.revisions.at(-1)?.revisionNumber;
+	const actionableRevisionNumber =
+		props.activeRevisionNumber ?? latestRevisionNumber;
+	const selectedRevisionIsActionable =
+		selectedRevision?.revisionNumber === actionableRevisionNumber;
+	const canManageSelectedRevision =
+		selectedRevisionIsActionable &&
+		(selectedRevision?.state === "active" ||
+			selectedRevision?.state === "discussing" ||
+			selectedRevision?.state === "resolved");
+	const canAnnotateSelectedRevision =
+		selectedRevisionIsActionable && selectedRevision?.state === "active";
 
 	const visibleThreads = useMemo(() => {
 		const threads = selectedRevision?.threads ?? [];
@@ -481,7 +510,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			},
 			path: string,
 		) => {
-			const cacheKey = `${path}\u0000${visibleThreadKey}\u0000${draftKey}`;
+			const cacheKey = `${path}\u0000${visibleThreadKey}\u0000${draftKey}\u0000${canManageSelectedRevision ? "editable" : "readonly"}`;
 			const cache = widgetCacheRef.current;
 			const cached = cache.get(cacheKey);
 			if (cached) return cached;
@@ -492,6 +521,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				threadIndex,
 				draftAnchor,
 				draftBody,
+				readOnly: !canManageSelectedRevision,
 				onReplyToThread: props.onReplyToThread,
 				onResolveThread: props.onResolveThread,
 				onReopenThread: props.onReopenThread,
@@ -520,6 +550,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			props.onReplyToThread,
 			props.onResolveThread,
 			threadIndex,
+			canManageSelectedRevision,
 			visibleThreadKey,
 		],
 	);
@@ -571,6 +602,13 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	const hasAddressThis = (selectedRevision?.addressThisCount ?? 0) > 0;
 
 	useEffect(() => {
+		if (canManageSelectedRevision) return;
+		setDraftAnchor(null);
+		setDraftBody("");
+		setSelectionPopup(null);
+	}, [canManageSelectedRevision]);
+
+	useEffect(() => {
 		if (!selectionPopup) return;
 		const dismiss = (e: MouseEvent) => {
 			if (!(e.target as HTMLElement).closest("[data-selection-popup]")) {
@@ -603,6 +641,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 	const handleDiffMouseUp = useCallback(
 		(_e: React.MouseEvent) => {
+			if (!canAnnotateSelectedRevision) return;
 			const sel = window.getSelection();
 			if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
 			if (!diffContentRef.current || !props.diff) return;
@@ -662,11 +701,11 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				side,
 			});
 		},
-		[props.diff],
+		[canAnnotateSelectedRevision, props.diff],
 	);
 
 	const handleCommentFromSelection = useCallback(() => {
-		if (!selectionPopup || !props.diff) return;
+		if (!canAnnotateSelectedRevision || !selectionPopup || !props.diff) return;
 
 		const file = filteredFiles.find(
 			(f) => (f.newPath || f.oldPath) === selectionPopup.filePath,
@@ -703,7 +742,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				}
 			}
 		}
-	}, [selectionPopup, filteredFiles, props.diff]);
+	}, [canAnnotateSelectedRevision, selectionPopup, filteredFiles, props.diff]);
 
 	const renderFile = useCallback(
 		(
@@ -761,7 +800,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 								gutterType="default"
 								gutterEvents={{
 									onClick: ({ change }) => {
-										if (!change || !props.diff) return;
+										if (!canAnnotateSelectedRevision || !change || !props.diff) {
+											return;
+										}
 										const hunk = file.hunks.find((candidate) =>
 											candidate.changes.includes(change),
 										);
@@ -792,6 +833,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			fileStatsByPath,
 			getTokensForFile,
 			getWidgetsForFile,
+			canAnnotateSelectedRevision,
 			props.diff,
 			viewType,
 		],
@@ -870,7 +912,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 									}`}
 								>
 									Rev {rev.revisionNumber}
-									{rev.revisionNumber === props.activeRevisionNumber && (
+									{rev.revisionNumber === actionableRevisionNumber && (
 										<span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
 									)}
 								</button>
@@ -951,9 +993,15 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					<span className="text-state-applied">+{props.diff.stats.additions}</span>
 					<span className="text-state-error">-{props.diff.stats.deletions}</span>
 				</div>
+				{selectedRevision && !selectedRevisionIsActionable ? (
+					<div className="mt-2 flex items-center gap-1.5 text-2xs text-white/40">
+						<Info className="h-3 w-3" />
+						Viewing a historical revision. Review actions are disabled.
+					</div>
+				) : null}
 				{/* Action buttons */}
 				<div className="mt-2 flex flex-col gap-1.5">
-					{revisionState === "approved" ? (
+					{selectedRevisionIsActionable && revisionState === "approved" ? (
 						<>
 							{(() => {
 								const done = props.session?.status === "completed" || props.session?.status === "merged";
@@ -992,7 +1040,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 								);
 							})()}
 						</>
-					) : (
+					) : selectedRevisionIsActionable ? (
 						<>
 							{revisionState === "discussing" && (
 								<button
@@ -1030,7 +1078,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 								Approve
 							</button>
 						</>
-					)}
+					) : null}
 				</div>
 			</div>
 

@@ -385,12 +385,18 @@ export class SessionService {
 		const session = (await this.getSessionSummary(sessionId))!;
 		const revisions = this.review.listRevisions(sessionId);
 		const activeRevisionNumber = this.review.getActiveRevisionNumber(sessionId);
+		const selectedRevisionNumber =
+			activeRevisionNumber ?? revisions.at(-1)?.revisionNumber;
 
-		// Build initial diff: latest revision's cumulative diff, or session_changes
+		// Build initial diff for the actionable revision, or fall back to session changes.
 		let currentDiff: DiffSnapshotView | undefined;
-		if (activeRevisionNumber !== undefined) {
+		if (selectedRevisionNumber !== undefined) {
 			try {
-				currentDiff = await this.review.buildRevisionDiff(sessionId, activeRevisionNumber, "incremental");
+				currentDiff = await this.review.buildRevisionDiff(
+					sessionId,
+					selectedRevisionNumber,
+					"incremental",
+				);
 			} catch {
 				// Ignore diff build failures
 			}
