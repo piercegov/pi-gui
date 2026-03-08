@@ -2,6 +2,10 @@ import { Plus, FolderOpen, Trash2, ExternalLink, Eye, MoreHorizontal, Archive, P
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { ProjectSummary, SessionSummary } from "@shared/models";
 
+const revealLabel = navigator.userAgent.includes("Mac")
+	? "Reveal in Finder"
+	: "Reveal in file manager";
+
 function sessionStatusColor(status: SessionSummary["status"]) {
 	if (status === "running") return "bg-state-running";
 	if (status === "reviewing") return "bg-state-review";
@@ -117,7 +121,7 @@ export function Sidebar(props: {
 						<button
 							onClick={() => props.onRevealProject(selectedProject.id)}
 							className="rounded-md p-1 text-white/40 transition hover:bg-white/8 hover:text-white/60"
-							title="Reveal in Finder"
+							title={revealLabel}
 						>
 							<Eye className="h-3.5 w-3.5" />
 						</button>

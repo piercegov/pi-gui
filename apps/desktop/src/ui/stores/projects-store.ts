@@ -20,8 +20,12 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 	async loadProjects() {
 		set({ loading: true });
 		const projects = await rpc.request.listProjects();
-		const selectedProjectId =
-			get().selectedProjectId ?? projects[0]?.id ?? undefined;
+		const currentSelectedProjectId = get().selectedProjectId;
+		const selectedProjectId = projects.some(
+			(project) => project.id === currentSelectedProjectId,
+		)
+			? currentSelectedProjectId
+			: projects[0]?.id;
 		set({
 			projects,
 			selectedProjectId,

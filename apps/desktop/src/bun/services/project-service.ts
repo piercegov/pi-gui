@@ -46,8 +46,8 @@ export class ProjectService {
 				p.default_base_ref,
 				p.last_opened_at,
 				p.metadata_json,
-				sum(case when s.archived_at is null then 1 else 0 end) as session_count,
-				sum(case when s.archived_at is not null then 1 else 0 end) as archived_session_count
+				coalesce(sum(case when s.id is not null and s.archived_at is null then 1 else 0 end), 0) as session_count,
+				coalesce(sum(case when s.id is not null and s.archived_at is not null then 1 else 0 end), 0) as archived_session_count
 			from projects p
 			left join sessions s on s.project_id = p.id
 			where p.archived_at is null
@@ -69,8 +69,8 @@ export class ProjectService {
 				p.default_base_ref,
 				p.last_opened_at,
 				p.metadata_json,
-				sum(case when s.archived_at is null then 1 else 0 end) as session_count,
-				sum(case when s.archived_at is not null then 1 else 0 end) as archived_session_count
+				coalesce(sum(case when s.id is not null and s.archived_at is null then 1 else 0 end), 0) as session_count,
+				coalesce(sum(case when s.id is not null and s.archived_at is not null then 1 else 0 end), 0) as archived_session_count
 			from projects p
 			left join sessions s on s.project_id = p.id
 			where p.id = ?

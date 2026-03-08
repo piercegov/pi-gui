@@ -1,6 +1,8 @@
 import { Terminal, Plus, Settings, ChevronRight, PanelRight } from "lucide-react";
 import type { SessionSummary } from "@shared/models";
 
+const shortcutModifierLabel = navigator.userAgent.includes("Mac") ? "Cmd" : "Ctrl";
+
 function statusColor(status: SessionSummary["status"]) {
 	if (status === "running") return "bg-state-running";
 	if (status === "reviewing") return "bg-state-review";
@@ -42,7 +44,7 @@ export function TitleBar(props: {
 				<button
 					onClick={props.onNewSession}
 					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80"
-					title="New session (Cmd+N)"
+					title={`New session (${shortcutModifierLabel}+N)`}
 				>
 					<Plus className="h-3.5 w-3.5" />
 					New thread
@@ -51,7 +53,7 @@ export function TitleBar(props: {
 					onClick={props.onToggleTerminal}
 					disabled={!props.supportsEmbeddedTerminal}
 					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80 disabled:opacity-30"
-					title="Toggle terminal (Cmd+J)"
+					title={`Toggle terminal (${shortcutModifierLabel}+J)`}
 				>
 					<Terminal className="h-3.5 w-3.5" />
 				</button>
@@ -60,14 +62,14 @@ export function TitleBar(props: {
 					className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition hover:bg-white/8 hover:text-white/80 ${
 						props.reviewPaneOpen ? "text-accent" : "text-white/60"
 					}`}
-					title="Toggle review pane (Cmd+R)"
+					title={`Toggle review pane (${shortcutModifierLabel}+R)`}
 				>
 					<PanelRight className="h-3.5 w-3.5" />
 				</button>
 				<button
 					onClick={props.onOpenSettings}
 					className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white/80"
-					title="Settings (Cmd+,)"
+					title={`Settings (${shortcutModifierLabel}+,)`}
 				>
 					<Settings className="h-3.5 w-3.5" />
 				</button>

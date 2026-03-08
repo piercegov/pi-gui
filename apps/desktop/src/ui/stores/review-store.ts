@@ -20,6 +20,7 @@ type ReviewState = {
 	diffStale: boolean;
 	_diffRequestId: number;
 	hydrate: (hydration: SessionHydration) => void;
+	clear: () => void;
 	setSelectedRevision: (n: number) => void;
 	setDiffMode: (mode: DiffMode) => void;
 	buildRevisionDiff: (revisionNumber: number, mode: DiffMode) => Promise<void>;
@@ -49,18 +50,33 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	_diffRequestId: 0,
 	hydrate(hydration) {
 		const activeNum = hydration.activeRevisionNumber;
+		const latestRevisionNumber = hydration.revisions.at(-1)?.revisionNumber;
+		const selectedRevisionNumber = activeNum ?? latestRevisionNumber;
+		const initialDiffMode = hydration.currentDiff?.diffMode ?? "incremental";
 		set({
 			sessionId: hydration.session.id,
 			revisions: hydration.revisions,
 			activeRevisionNumber: activeNum,
-			selectedRevisionNumber: activeNum,
-			diffMode: "incremental",
+			selectedRevisionNumber,
+			diffMode: initialDiffMode,
 			currentDiff: hydration.currentDiff,
 			diffStale: false,
 		});
-		if (!hydration.currentDiff && activeNum !== undefined) {
-			void get().buildRevisionDiff(activeNum, "incremental");
+		if (!hydration.currentDiff && selectedRevisionNumber !== undefined) {
+			void get().buildRevisionDiff(selectedRevisionNumber, initialDiffMode);
 		}
+	},
+	clear() {
+		set({
+			sessionId: undefined,
+			revisions: [],
+			activeRevisionNumber: undefined,
+			selectedRevisionNumber: undefined,
+			diffMode: "incremental",
+			currentDiff: undefined,
+			diffStale: false,
+			_diffRequestId: 0,
+		});
 	},
 	setSelectedRevision(n) {
 		set({ selectedRevisionNumber: n });

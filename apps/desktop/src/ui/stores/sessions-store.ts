@@ -38,6 +38,7 @@ type SessionsState = {
 	) => Promise<CheckpointSummaryView | undefined>;
 	upsertSummary: (summary: SessionSummary) => void;
 	setHydration: (hydration: SessionHydration | undefined) => void;
+	clearSelection: () => void;
 };
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
@@ -55,10 +56,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				[projectId]: sessions,
 			},
 			loading: false,
-			selectedSessionId:
-				state.selectedSessionId ??
-				sessions.find((session) => !session.archivedAt)?.id ??
-				sessions[0]?.id,
+			selectedSessionId: sessions.some(
+				(session) => session.id === state.selectedSessionId,
+			)
+				? state.selectedSessionId
+				: sessions.find((session) => !session.archivedAt)?.id ??
+					sessions[0]?.id,
 		}));
 	},
 	async openSession(sessionId) {
@@ -139,5 +142,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	},
 	setHydration(hydration) {
 		set({ currentHydration: hydration });
+	},
+	clearSelection() {
+		set({
+			selectedSessionId: undefined,
+			currentHydration: undefined,
+		});
 	},
 }));

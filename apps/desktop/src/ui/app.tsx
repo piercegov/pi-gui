@@ -113,11 +113,13 @@ export function App() {
 	const createManualCheckpoint = useSessionsStore((state) => state.createManualCheckpoint);
 	const upsertSummary = useSessionsStore((state) => state.upsertSummary);
 	const currentHydration = useSessionsStore((state) => state.currentHydration);
+	const clearSessionSelection = useSessionsStore((state) => state.clearSelection);
 	const entries = useConversationStore((state) => state.entries);
 	const toolActivity = useConversationStore((state) => state.toolActivity);
 	const checkpoints = useConversationStore((state) => state.checkpoints);
 	const contextUsage = useConversationStore((state) => state.contextUsage);
 	const hydrateConversation = useConversationStore((state) => state.hydrate);
+	const clearConversation = useConversationStore((state) => state.clear);
 	const applyEvent = useConversationStore((state) => state.applyEvent);
 	const revisions = useReviewStore((state) => state.revisions);
 	const activeRevisionNumber = useReviewStore((state) => state.activeRevisionNumber);
@@ -126,6 +128,7 @@ export function App() {
 	const currentDiff = useReviewStore((state) => state.currentDiff);
 	const diffStale = useReviewStore((state) => state.diffStale);
 	const hydrateReview = useReviewStore((state) => state.hydrate);
+	const clearReview = useReviewStore((state) => state.clear);
 	const setSelectedRevision = useReviewStore((state) => state.setSelectedRevision);
 	const setDiffMode = useReviewStore((state) => state.setDiffMode);
 	const createThread = useReviewStore((state) => state.createThread);
@@ -194,8 +197,15 @@ export function App() {
 		[selectedProjectId, sessionsByProject],
 	);
 	const currentSession = useMemo<SessionSummary | undefined>(() => {
-		return currentHydration?.session ?? sessions.find((session) => session.id === selectedSessionId);
-	}, [currentHydration?.session, selectedSessionId, sessions]);
+		if (
+			currentHydration?.session &&
+			currentHydration.session.projectId === selectedProjectId &&
+			currentHydration.session.id === selectedSessionId
+		) {
+			return currentHydration.session;
+		}
+		return sessions.find((session) => session.id === selectedSessionId);
+	}, [currentHydration?.session, selectedProjectId, selectedSessionId, sessions]);
 	const currentInspector = useMemo(
 		() => (currentSession ? inspectorsBySession[currentSession.id] : undefined),
 		[currentSession?.id, inspectorsBySession],
@@ -231,13 +241,26 @@ export function App() {
 		hydrateSettings(hydration);
 	};
 
+	const clearOpenSession = useCallback(() => {
+		clearSessionSelection();
+		clearConversation();
+		clearReview();
+	}, [clearConversation, clearReview, clearSessionSelection]);
+
 	useEffect(() => {
 		void loadProjects();
 		void loadSettings();
 	}, [loadProjects, loadSettings]);
 
 	useEffect(() => {
-		if (!selectedProjectId || !settings) return;
+		if (!settings) return;
+		if (!selectedProjectId) {
+			clearOpenSession();
+			return;
+		}
+		if (currentHydration?.project.id !== selectedProjectId) {
+			clearOpenSession();
+		}
 		void loadSessions(selectedProjectId).then(async () => {
 			const projectSessions =
 				useSessionsStore.getState().sessionsByProject[selectedProjectId] ?? [];
@@ -250,9 +273,13 @@ export function App() {
 				const hydration = await openSession(nextSessionId);
 				applyHydration(hydration);
 				await loadInspector(nextSessionId);
+				return;
 			}
+			clearOpenSession();
 		});
 	}, [
+		clearOpenSession,
+		currentHydration?.project.id,
 		loadInspector,
 		loadSessions,
 		openSession,
@@ -389,7 +416,9 @@ export function App() {
 				nextSessions.find((item) => !item.archivedAt)?.id ?? nextSessions[0]?.id;
 			if (nextSessionId) {
 				await handleOpenSession(nextSessionId);
+				return;
 			}
+			clearOpenSession();
 		}
 	};
 
