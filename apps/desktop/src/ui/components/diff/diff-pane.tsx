@@ -13,10 +13,8 @@ import type {
 	CommentAnchor,
 	CommentThreadView,
 	DiffFileStat,
-	DiffMode,
 	DiffSnapshotView,
 	DiffViewMode,
-	RevisionView,
 	SessionInspectorView,
 	SessionSummary,
 	ThreadResolution,
@@ -32,6 +30,7 @@ import { refractorCompat } from "@ui/lib/refractor-compat";
 import { createAnchorFromChange } from "@ui/lib/diff-utils";
 import { measureDiffPerf, recordDiffPerf } from "@ui/lib/diff-perf";
 import { MarkdownRenderer } from "@ui/lib/markdown";
+import { useReviewStore } from "@ui/stores/review-store";
 import { MemoizedSessionInspector } from "./session-inspector";
 
 const MIN_SELECTION_CHARS = 2;
@@ -729,29 +728,30 @@ const MemoizedDiffBodySection = memo(
 type DiffPaneProps = {
 	session?: DiffPaneSession;
 	inspector?: SessionInspectorView;
-	diff?: DiffSnapshotView;
-	revisions: RevisionView[];
-	activeRevisionNumber?: number;
-	selectedRevisionNumber?: number;
-	diffMode: DiffMode;
 	defaultView: DiffViewMode;
-	diffStale: boolean;
-	onSelectRevision: (n: number) => void;
-	onSetDiffMode: (mode: DiffMode) => void;
-	onCreateThread: (anchor: CommentAnchor, body: string) => Promise<void>;
-	onReplyToThread: (threadId: string, body: string) => Promise<void>;
-	onResolveThread: (threadId: string, resolution: ThreadResolution) => Promise<void>;
-	onReopenThread: (threadId: string) => Promise<void>;
-	onPublishComments: () => Promise<void>;
-	onStartNextRevision: () => Promise<void>;
-	onApprove: () => Promise<void>;
-	onApplyRevision: () => Promise<void>;
-	onApplyAndMerge: (commitMessage?: string) => Promise<void>;
 	onCreateManualCheckpoint: () => Promise<void>;
 	onRepairWorktree: () => Promise<void>;
 };
 
 function DiffPaneComponent(props: DiffPaneProps) {
+	const revisions = useReviewStore((s) => s.revisions);
+	const activeRevisionNumber = useReviewStore((s) => s.activeRevisionNumber);
+	const selectedRevisionNumber = useReviewStore((s) => s.selectedRevisionNumber);
+	const diffMode = useReviewStore((s) => s.diffMode);
+	const currentDiff = useReviewStore((s) => s.currentDiff);
+	const diffStale = useReviewStore((s) => s.diffStale);
+	const setSelectedRevision = useReviewStore((s) => s.setSelectedRevision);
+	const setDiffMode = useReviewStore((s) => s.setDiffMode);
+	const createThread = useReviewStore((s) => s.createThread);
+	const replyToThread = useReviewStore((s) => s.replyToThread);
+	const resolveThread = useReviewStore((s) => s.resolveThread);
+	const reopenThread = useReviewStore((s) => s.reopenThread);
+	const publishComments = useReviewStore((s) => s.publishComments);
+	const startNextRevision = useReviewStore((s) => s.startNextRevision);
+	const approveRevision = useReviewStore((s) => s.approve);
+	const applyRevision = useReviewStore((s) => s.applyRevision);
+	const applyAndMerge = useReviewStore((s) => s.applyAndMerge);
+
 	const [viewType, setViewType] = useState<DiffViewMode>(props.defaultView);
 	const [search, setSearch] = useState("");
 	const [draftAnchor, setDraftAnchor] = useState<CommentAnchor | null>(null);
@@ -771,10 +771,10 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	} | null>(null);
 	const diffContentRef = useRef<HTMLDivElement>(null);
 	const deferredSearch = useDeferredValue(search);
-	const diffKey = props.diff?.cacheKey;
+	const diffKey = currentDiff?.cacheKey;
 	const parsedDiffModel = useMemo(
-		() => buildParsedDiffModel(props.diff),
-		[diffKey, props.diff?.files, props.diff?.patch],
+		() => buildParsedDiffModel(currentDiff),
+		[diffKey, currentDiff?.files, currentDiff?.patch],
 	);
 	const parsedFiles = parsedDiffModel.files;
 
@@ -783,8 +783,8 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	}, [diffKey]);
 
 	const selectedRevision = useMemo(
-		() => props.revisions.find((r) => r.revisionNumber === props.selectedRevisionNumber),
-		[props.revisions, props.selectedRevisionNumber],
+		() => revisions.find((r) => r.revisionNumber === selectedRevisionNumber),
+		[revisions, selectedRevisionNumber],
 	);
 
 	const visibleThreads = useMemo(() => {
@@ -851,22 +851,22 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			const cached = cache.get(cacheKey);
 			if (cached) return cached;
 			const widgets = buildWidgetsForFile({
-				diffId: props.diff?.cacheKey,
+				diffId: currentDiff?.cacheKey,
 				file,
 				path,
 				threadIndex,
 				draftAnchor,
 				draftBody,
-				onReplyToThread: props.onReplyToThread,
-				onResolveThread: props.onResolveThread,
-				onReopenThread: props.onReopenThread,
+				onReplyToThread: replyToThread,
+				onResolveThread: resolveThread,
+				onReopenThread: reopenThread,
 				onCancelDraft: () => {
 					setDraftAnchor(null);
 					setDraftBody("");
 				},
 				onSubmitDraft: async () => {
 					if (!draftAnchor || !draftBody.trim()) return;
-					await props.onCreateThread(draftAnchor, draftBody);
+					await createThread(draftAnchor, draftBody);
 					setDraftBody("");
 					setDraftAnchor(null);
 				},
@@ -880,10 +880,10 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			draftBody,
 			draftKey,
 			diffKey,
-			props.onCreateThread,
-			props.onReopenThread,
-			props.onReplyToThread,
-			props.onResolveThread,
+			createThread,
+			reopenThread,
+			replyToThread,
+			resolveThread,
 			threadIndex,
 			visibleThreadKey,
 		],
@@ -901,7 +901,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 	const handleSelectChange = useCallback(
 		(file: FileData, change: ChangeData) => {
-			if (!props.diff) return;
+			if (!currentDiff) return;
 			const hunk = file.hunks.find((candidate) => candidate.changes.includes(change));
 			if (!hunk) return;
 			setDraftAnchor(
@@ -909,11 +909,11 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					file,
 					hunk,
 					change,
-					diff: props.diff,
+					diff: currentDiff,
 				}),
 			);
 		},
-		[props.diff],
+		[currentDiff],
 	);
 
 	const renderItems = useMemo(() => {
@@ -973,14 +973,14 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				renderItemCount: renderItems.length,
 				totalChangeCount: parsedDiffModel.totalChangeCount,
 				largestFileChangeCount: parsedDiffModel.largestFileChangeCount,
-				patchBytes: props.diff?.patch.length ?? 0,
+				patchBytes: currentDiff?.patch.length ?? 0,
 			}),
 		[
 			filteredFiles.length,
 			renderItems.length,
 			parsedDiffModel.largestFileChangeCount,
 			parsedDiffModel.totalChangeCount,
-			props.diff?.patch.length,
+			currentDiff?.patch.length,
 		],
 	);
 
@@ -1004,7 +1004,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	useEffect(() => {
 		recordDiffPerf({
 			kind: "diff_render_mode",
-			diffId: props.diff?.cacheKey,
+			diffId: currentDiff?.cacheKey,
 			durationMs: 0,
 			timestamp: Date.now(),
 			metadata: {
@@ -1019,7 +1019,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	}, [
 		filteredFiles.length,
 		parsedDiffModel.fileRenderSegmentsByPath,
-		props.diff?.cacheKey,
+		currentDiff?.cacheKey,
 		renderItems.length,
 		shouldVirtualizeDiffContent,
 	]);
@@ -1063,7 +1063,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		(_e: React.MouseEvent) => {
 			const sel = window.getSelection();
 			if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-			if (!diffContentRef.current || !props.diff) return;
+			if (!diffContentRef.current || !currentDiff) return;
 
 			const selectedText = sel.toString();
 			if (selectedText.trim().length < MIN_SELECTION_CHARS) return;
@@ -1120,11 +1120,11 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				side,
 			});
 		},
-		[props.diff],
+		[currentDiff],
 	);
 
 	const handleCommentFromSelection = useCallback(() => {
-		if (!selectionPopup || !props.diff) return;
+		if (!selectionPopup || !currentDiff) return;
 
 		const file = filteredFiles.find(
 			(f) => (f.newPath || f.oldPath) === selectionPopup.filePath,
@@ -1147,7 +1147,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							file,
 							hunk,
 							change,
-							diff: props.diff!,
+							diff: currentDiff!,
 						}),
 					);
 					const quoted = selectionPopup.selectedText
@@ -1161,7 +1161,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				}
 			}
 		}
-	}, [selectionPopup, filteredFiles, props.diff]);
+	}, [selectionPopup, filteredFiles, currentDiff]);
 
 	const renderDiffItem = useCallback(
 		(
@@ -1211,7 +1211,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					style={options?.style}
 				>
 					<MemoizedDiffBodySection
-						diff={props.diff}
+						diff={currentDiff}
 						file={item.file}
 						path={item.path}
 						hunks={item.hunks}
@@ -1227,14 +1227,14 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			fileStatsByPath,
 			getWidgetsForFile,
 			handleSelectChange,
-			props.diff,
+			currentDiff,
 			toggleCollapsedFile,
 			viewType,
 		],
 	);
 
 	useEffect(() => {
-		const diffId = props.diff?.cacheKey;
+		const diffId = currentDiff?.cacheKey;
 		if (!diffId) return;
 		const start = performance.now();
 		const raf = window.requestAnimationFrame(() => {
@@ -1252,9 +1252,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			});
 		});
 		return () => window.cancelAnimationFrame(raf);
-	}, [filteredFiles.length, props.diff?.cacheKey, renderItems.length, shouldVirtualizeDiffContent, viewType]);
+	}, [filteredFiles.length, currentDiff?.cacheKey, renderItems.length, shouldVirtualizeDiffContent, viewType]);
 
-	if (!props.diff) {
+	if (!currentDiff) {
 		return (
 			<section className="flex h-full flex-col border-l border-surface-border bg-surface-0">
 				<div className="flex items-center border-b border-surface-border px-3 py-2">
@@ -1294,20 +1294,20 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			<div className="border-b border-surface-border px-3 py-2">
 				<div className="flex flex-wrap items-center gap-1.5">
 					{/* Revision tabs */}
-					{props.revisions.length > 0 && (
+					{revisions.length > 0 && (
 						<div className="flex items-center">
-							{props.revisions.map((rev) => (
+							{revisions.map((rev) => (
 								<button
 									key={rev.id}
-									onClick={() => props.onSelectRevision(rev.revisionNumber)}
+									onClick={() => setSelectedRevision(rev.revisionNumber)}
 									className={`relative px-2 py-1 text-xs transition ${
-										rev.revisionNumber === props.selectedRevisionNumber
+										rev.revisionNumber === selectedRevisionNumber
 											? "bg-accent/15 text-accent font-medium"
 											: "text-white/40 hover:text-white/60 hover:bg-white/5"
 									}`}
 								>
 									Rev {rev.revisionNumber}
-									{rev.revisionNumber === props.activeRevisionNumber && (
+									{rev.revisionNumber === activeRevisionNumber && (
 										<span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
 									)}
 								</button>
@@ -1317,9 +1317,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					{/* Diff mode toggle */}
 					<div className="flex border border-surface-border">
 						<button
-							onClick={() => props.onSetDiffMode("incremental")}
+							onClick={() => setDiffMode("incremental")}
 							className={`px-2 py-1 text-xs transition ${
-								props.diffMode === "incremental"
+								diffMode === "incremental"
 									? "bg-accent/15 text-accent"
 									: "bg-surface-2 text-white/40 hover:text-white/60"
 							}`}
@@ -1327,9 +1327,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							Incremental
 						</button>
 						<button
-							onClick={() => props.onSetDiffMode("cumulative")}
+							onClick={() => setDiffMode("cumulative")}
 							className={`px-2 py-1 text-xs transition ${
-								props.diffMode === "cumulative"
+								diffMode === "cumulative"
 									? "bg-accent/15 text-accent"
 									: "bg-surface-2 text-white/40 hover:text-white/60"
 							}`}
@@ -1374,7 +1374,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 						<Info className="h-3 w-3" />
 						Inspector
 					</button>
-					{props.diffStale ? (
+					{diffStale ? (
 						<div className="flex items-center gap-1 text-xs text-state-review">
 							<AlertTriangle className="h-3 w-3" />
 							Stale
@@ -1382,11 +1382,11 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					) : null}
 				</div>
 				<div className="mt-1.5 flex flex-wrap items-center gap-3 text-2xs text-white/35">
-					<span className="font-medium text-white/60">{props.diff.title}</span>
-					<span>{props.diff.fromLabel} → {props.diff.toLabel}</span>
-					<span>{props.diff.stats.filesChanged} files</span>
-					<span className="text-state-applied">+{props.diff.stats.additions}</span>
-					<span className="text-state-error">-{props.diff.stats.deletions}</span>
+					<span className="font-medium text-white/60">{currentDiff.title}</span>
+					<span>{currentDiff.fromLabel} → {currentDiff.toLabel}</span>
+					<span>{currentDiff.stats.filesChanged} files</span>
+					<span className="text-state-applied">+{currentDiff.stats.additions}</span>
+					<span className="text-state-error">-{currentDiff.stats.deletions}</span>
 				</div>
 				{/* Action buttons */}
 				<div className="mt-2 flex flex-col gap-1.5">
@@ -1407,7 +1407,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 										)}
 										<div className="flex gap-1.5">
 											<button
-												onClick={props.onApplyRevision}
+												onClick={applyRevision}
 												disabled={done}
 												className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium ${done ? "bg-state-applied/40 text-black/40 cursor-not-allowed" : "bg-state-applied text-black"}`}
 											>
@@ -1416,7 +1416,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 											</button>
 											{props.session?.mode === "worktree" && (
 												<button
-													onClick={() => props.onApplyAndMerge(commitMessage || undefined)}
+													onClick={() => applyAndMerge(commitMessage || undefined)}
 													disabled={done}
 													className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium ${done ? "bg-state-applied/40 text-black/40 cursor-not-allowed" : "bg-state-applied text-black"}`}
 												>
@@ -1442,7 +1442,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							)}
 							{revisionState === "active" && hasDraftComments && (
 								<button
-									onClick={props.onPublishComments}
+									onClick={publishComments}
 									className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
 								>
 									<Send className="h-3 w-3" />
@@ -1451,7 +1451,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							)}
 							{revisionState === "resolved" && hasAddressThis && (
 								<button
-									onClick={props.onStartNextRevision}
+									onClick={startNextRevision}
 									className="flex items-center gap-1 bg-accent px-2.5 py-1 text-xs font-medium text-black"
 								>
 									<Play className="h-3 w-3" />
@@ -1460,7 +1460,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							)}
 							{/* Approve is always available (except when already approved) */}
 							<button
-								onClick={props.onApprove}
+								onClick={approveRevision}
 								className="flex items-center gap-1 bg-state-applied px-2.5 py-1 text-xs font-medium text-black"
 							>
 								<CheckCircle2 className="h-3 w-3" />
@@ -1579,18 +1579,4 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	);
 }
 
-function areDiffPanePropsEqual(prev: DiffPaneProps, next: DiffPaneProps) {
-	return (
-		prev.session === next.session &&
-		prev.inspector === next.inspector &&
-		prev.diff === next.diff &&
-		prev.revisions === next.revisions &&
-		prev.activeRevisionNumber === next.activeRevisionNumber &&
-		prev.selectedRevisionNumber === next.selectedRevisionNumber &&
-		prev.diffMode === next.diffMode &&
-		prev.defaultView === next.defaultView &&
-		prev.diffStale === next.diffStale
-	);
-}
-
-export const DiffPane = memo(DiffPaneComponent, areDiffPanePropsEqual);
+export const DiffPane = memo(DiffPaneComponent);

@@ -25,6 +25,21 @@ import { NewSessionDialog } from "./components/shared/new-session-dialog";
 import { PromptDialog } from "./components/shared/prompt-dialog";
 import { PerfOverlay } from "./components/shell/perf-overlay";
 
+function StatusBar({ session }: { session?: SessionSummary }) {
+	const contextUsage = useConversationStore((s) => s.contextUsage);
+	return (
+		<div className="flex h-6 shrink-0 items-center justify-between border-t border-surface-border bg-surface-0 px-3 text-2xs text-white/25">
+			<span>{session ? `${session.mode} · ${session.reviewState}` : "No session"}</span>
+			<div className="flex items-center gap-3">
+				{contextUsage ? (
+					<ContextUsageBar usage={contextUsage} />
+				) : null}
+				<span>{session?.modelLabel ?? ""}</span>
+			</div>
+		</div>
+	);
+}
+
 function ResizeHandle(props: {
 	onDrag: (delta: number) => void;
 }) {
@@ -116,33 +131,12 @@ export function App() {
 	const upsertSummary = useSessionsStore((state) => state.upsertSummary);
 	const currentHydration = useSessionsStore((state) => state.currentHydration);
 	const setHydration = useSessionsStore((state) => state.setHydration);
-	const entries = useConversationStore((state) => state.entries);
-	const toolActivity = useConversationStore((state) => state.toolActivity);
-	const checkpoints = useConversationStore((state) => state.checkpoints);
-	const contextUsage = useConversationStore((state) => state.contextUsage);
 	const prepareConversation = useConversationStore((state) => state.prepareSession);
 	const hydrateConversation = useConversationStore((state) => state.hydrate);
 	const applyEvent = useConversationStore((state) => state.applyEvent);
-	const revisions = useReviewStore((state) => state.revisions);
-	const activeRevisionNumber = useReviewStore((state) => state.activeRevisionNumber);
-	const selectedRevisionNumber = useReviewStore((state) => state.selectedRevisionNumber);
-	const diffMode = useReviewStore((state) => state.diffMode);
-	const currentDiff = useReviewStore((state) => state.currentDiff);
-	const diffStale = useReviewStore((state) => state.diffStale);
 	const prepareReview = useReviewStore((state) => state.prepareSession);
 	const hydrateReview = useReviewStore((state) => state.hydrate);
 	const setReviewPaneVisible = useReviewStore((state) => state.setReviewPaneVisible);
-	const setSelectedRevision = useReviewStore((state) => state.setSelectedRevision);
-	const setDiffMode = useReviewStore((state) => state.setDiffMode);
-	const createThread = useReviewStore((state) => state.createThread);
-	const replyToThread = useReviewStore((state) => state.replyToThread);
-	const resolveThread = useReviewStore((state) => state.resolveThread);
-	const reopenThread = useReviewStore((state) => state.reopenThread);
-	const publishComments = useReviewStore((state) => state.publishComments);
-	const startNextRevision = useReviewStore((state) => state.startNextRevision);
-	const approveRevision = useReviewStore((state) => state.approve);
-	const applyRevision = useReviewStore((state) => state.applyRevision);
-	const applyAndMergeRevision = useReviewStore((state) => state.applyAndMerge);
 	const updateRevision = useReviewStore((state) => state.updateRevision);
 	const updateThread = useReviewStore((state) => state.updateThread);
 	const markStale = useReviewStore((state) => state.markStale);
@@ -229,6 +223,46 @@ export function App() {
 	);
 	const supportsEmbeddedTerminal = currentHydration?.supportsEmbeddedTerminal ?? true;
 	const sessionOpenRequestIdRef = useRef(0);
+	const sessionIdRef = useRef<string | undefined>(currentSession?.id);
+	sessionIdRef.current = currentSession?.id;
+
+	const handleSendPrompt = useCallback(
+		(text: string) => {
+			const sid = sessionIdRef.current;
+			return sid ? rpc.request.sendPrompt({ sessionId: sid, text }) : Promise.resolve();
+		},
+		[],
+	);
+	const handleSteer = useCallback(
+		(text: string) => {
+			const sid = sessionIdRef.current;
+			return sid ? rpc.request.steerSession({ sessionId: sid, text }) : Promise.resolve();
+		},
+		[],
+	);
+	const handleFollowUp = useCallback(
+		(text: string) => {
+			const sid = sessionIdRef.current;
+			return sid ? rpc.request.followUpSession({ sessionId: sid, text }) : Promise.resolve();
+		},
+		[],
+	);
+	const handleAbort = useCallback(() => {
+		const sid = sessionIdRef.current;
+		return sid ? rpc.request.abortSession({ sessionId: sid }) : Promise.resolve();
+	}, []);
+	const handleRestoreCheckpoint = useCallback((checkpointId: string) => {
+		const sid = sessionIdRef.current;
+		return sid ? rpc.request.restoreCheckpoint({ sessionId: sid, checkpointId }) : Promise.resolve();
+	}, []);
+	const handleCreateManualCheckpoint = useCallback(() => {
+		const sid = sessionIdRef.current;
+		return sid ? createManualCheckpoint(sid).then(() => undefined) : Promise.resolve();
+	}, [createManualCheckpoint]);
+	const handleRepairWorktree = useCallback(() => {
+		const sid = sessionIdRef.current;
+		return sid ? repairWorktree(sid) : Promise.resolve();
+	}, [repairWorktree]);
 
 	const applyHydration = useCallback((hydration: SessionHydration) => {
 		hydrateConversation(hydration);
@@ -382,9 +416,12 @@ export function App() {
 		}
 	};
 
-	const handleOpenSession = async (sessionId: string) => {
-		await openAndHydrateSession(sessionId);
-	};
+	const handleOpenSession = useCallback(
+		async (sessionId: string) => {
+			await openAndHydrateSession(sessionId);
+		},
+		[openAndHydrateSession],
+	);
 
 	const handleRenameSession = (session: SessionSummary) => {
 		setPromptDialog({
@@ -400,23 +437,65 @@ export function App() {
 		});
 	};
 
-	const handleArchiveSession = async (session: SessionSummary, archived: boolean) => {
-		await archiveSession(session.id, archived, session.projectId);
-		if (
-			archived &&
-			currentSession?.id === session.id &&
-			!settings?.showArchived &&
-			selectedProjectId
-		) {
-			const nextSessions =
-				useSessionsStore.getState().sessionsByProject[selectedProjectId] ?? [];
-			const nextSessionId =
-				nextSessions.find((item) => !item.archivedAt)?.id ?? nextSessions[0]?.id;
-			if (nextSessionId) {
-				await handleOpenSession(nextSessionId);
+	const handleArchiveSession = useCallback(
+		async (session: SessionSummary, archived: boolean) => {
+			await archiveSession(session.id, archived, session.projectId);
+			const sid = sessionIdRef.current;
+			const state = useSessionsStore.getState();
+			const projId = useProjectsStore.getState().selectedProjectId;
+			if (
+				archived &&
+				sid === session.id &&
+				!useSettingsStore.getState().settings?.showArchived &&
+				projId
+			) {
+				const nextSessions = state.sessionsByProject[projId] ?? [];
+				const nextSessionId =
+					nextSessions.find((item) => !item.archivedAt)?.id ?? nextSessions[0]?.id;
+				if (nextSessionId) {
+					await handleOpenSession(nextSessionId);
+				}
 			}
-		}
-	};
+		},
+		[archiveSession, handleOpenSession],
+	);
+
+	const sidebarOpenSession = useCallback(
+		(sessionId: string) => void handleOpenSession(sessionId),
+		[handleOpenSession],
+	);
+	const sidebarAddProject = useCallback(
+		() => void promptForProjectPath(),
+		[addProject],
+	);
+	const sidebarRemoveProject = useCallback(
+		(projectId: string) => void removeProject(projectId),
+		[removeProject],
+	);
+	const sidebarCreateSession = useCallback(
+		() => void promptCreateSession(),
+		[selectedProjectId],
+	);
+	const sidebarOpenInEditor = useCallback(
+		(projectId: string) => void rpc.request.openProjectInEditor({ projectId }),
+		[],
+	);
+	const sidebarRevealProject = useCallback(
+		(projectId: string) => void rpc.request.revealProject({ projectId }),
+		[],
+	);
+	const sidebarArchiveSession = useCallback(
+		(session: SessionSummary, archived: boolean) => void handleArchiveSession(session, archived),
+		[handleArchiveSession],
+	);
+	const sidebarOpenSettings = useCallback(
+		() => setSettingsOpen(true),
+		[setSettingsOpen],
+	);
+	const sidebarOpenProjectSettings = useCallback(
+		() => setProjectSettingsOpen(true),
+		[],
+	);
 
 	useEffect(() => {
 		const onContextMenu = (event: MouseEvent) => {
@@ -476,11 +555,11 @@ export function App() {
 		<div className="flex h-full flex-col bg-surface-0">
 			<TitleBar
 				session={currentSession}
-				onNewSession={() => void promptCreateSession()}
+				onNewSession={sidebarCreateSession}
 				onToggleTerminal={toggleTerminal}
 				onToggleReviewPane={toggleReviewPane}
 				reviewPaneOpen={reviewPaneOpen}
-				onOpenSettings={() => setSettingsOpen(true)}
+				onOpenSettings={sidebarOpenSettings}
 				supportsEmbeddedTerminal={supportsEmbeddedTerminal}
 			/>
 
@@ -492,22 +571,16 @@ export function App() {
 					sessions={sessions}
 					selectedSessionId={selectedSessionId}
 					onSelectProject={selectProject}
-					onOpenSession={(sessionId) => void handleOpenSession(sessionId)}
-					onAddProject={() => void promptForProjectPath()}
-					onRemoveProject={(projectId) => void removeProject(projectId)}
-					onCreateSession={() => void promptCreateSession()}
-					onOpenProjectInEditor={(projectId) =>
-						void rpc.request.openProjectInEditor({ projectId })
-					}
-					onRevealProject={(projectId) =>
-						void rpc.request.revealProject({ projectId })
-					}
-					onRenameSession={(session) => handleRenameSession(session)}
-					onArchiveSession={(session, archived) =>
-						void handleArchiveSession(session, archived)
-					}
-					onOpenSettings={() => setSettingsOpen(true)}
-				onOpenProjectSettings={() => setProjectSettingsOpen(true)}
+					onOpenSession={sidebarOpenSession}
+					onAddProject={sidebarAddProject}
+					onRemoveProject={sidebarRemoveProject}
+					onCreateSession={sidebarCreateSession}
+					onOpenProjectInEditor={sidebarOpenInEditor}
+					onRevealProject={sidebarRevealProject}
+					onRenameSession={handleRenameSession}
+					onArchiveSession={sidebarArchiveSession}
+					onOpenSettings={sidebarOpenSettings}
+					onOpenProjectSettings={sidebarOpenProjectSettings}
 				/>
 				</div>
 
@@ -516,34 +589,11 @@ export function App() {
 				<div className="min-w-0 flex-1">
 				<ConversationPane
 					session={currentSession}
-					entries={entries}
-					toolActivity={toolActivity}
-					checkpoints={checkpoints}
-					onSendPrompt={(text) =>
-						currentSession
-							? rpc.request.sendPrompt({ sessionId: currentSession.id, text })
-							: Promise.resolve()
-					}
-					onSteer={(text) =>
-						currentSession
-							? rpc.request.steerSession({ sessionId: currentSession.id, text })
-							: Promise.resolve()
-					}
-					onFollowUp={(text) =>
-						currentSession
-							? rpc.request.followUpSession({ sessionId: currentSession.id, text })
-							: Promise.resolve()
-					}
-					onAbort={() =>
-						currentSession
-							? rpc.request.abortSession({ sessionId: currentSession.id })
-							: Promise.resolve()
-					}
-					onRestoreCheckpoint={(checkpointId) =>
-						currentSession
-							? rpc.request.restoreCheckpoint({ sessionId: currentSession.id, checkpointId })
-							: Promise.resolve()
-					}
+					onSendPrompt={handleSendPrompt}
+					onSteer={handleSteer}
+					onFollowUp={handleFollowUp}
+					onAbort={handleAbort}
+					onRestoreCheckpoint={handleRestoreCheckpoint}
 				/>
 				</div>
 
@@ -555,34 +605,9 @@ export function App() {
 					<DiffPane
 						session={diffSession}
 						inspector={currentInspector}
-						diff={currentDiff}
-						revisions={revisions}
-						activeRevisionNumber={activeRevisionNumber}
-						selectedRevisionNumber={selectedRevisionNumber}
-						diffMode={diffMode}
 						defaultView={settings?.defaultDiffView ?? "split"}
-						diffStale={diffStale}
-						onSelectRevision={setSelectedRevision}
-						onSetDiffMode={setDiffMode}
-						onCreateThread={createThread}
-						onReplyToThread={replyToThread}
-						onResolveThread={resolveThread}
-						onReopenThread={reopenThread}
-						onPublishComments={publishComments}
-						onStartNextRevision={startNextRevision}
-						onApprove={approveRevision}
-						onApplyRevision={applyRevision}
-						onApplyAndMerge={applyAndMergeRevision}
-						onCreateManualCheckpoint={() =>
-							currentSession
-								? createManualCheckpoint(currentSession.id).then(() => undefined)
-								: Promise.resolve()
-						}
-						onRepairWorktree={() =>
-							currentSession
-								? repairWorktree(currentSession.id)
-								: Promise.resolve()
-						}
+						onCreateManualCheckpoint={handleCreateManualCheckpoint}
+						onRepairWorktree={handleRepairWorktree}
 					/>
 					</div>
 					</>
@@ -630,16 +655,7 @@ export function App() {
 				onCancel={() => setPromptDialog(null)}
 			/>
 
-			{/* Status bar */}
-			<div className="flex h-6 shrink-0 items-center justify-between border-t border-surface-border bg-surface-0 px-3 text-2xs text-white/25">
-				<span>{currentSession ? `${currentSession.mode} · ${currentSession.reviewState}` : "No session"}</span>
-				<div className="flex items-center gap-3">
-					{contextUsage ? (
-						<ContextUsageBar usage={contextUsage} />
-					) : null}
-					<span>{currentSession?.modelLabel ?? ""}</span>
-				</div>
-			</div>
+			<StatusBar session={currentSession} />
 
 			<PerfOverlay />
 

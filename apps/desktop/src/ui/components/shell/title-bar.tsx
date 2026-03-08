@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Terminal, Plus, Settings, ChevronRight, PanelRight } from "lucide-react";
 import type { SessionSummary } from "@shared/models";
 
@@ -9,7 +10,7 @@ function statusColor(status: SessionSummary["status"]) {
 	return "bg-white/20";
 }
 
-export function TitleBar(props: {
+export const TitleBar = memo(function TitleBar(props: {
 	session?: SessionSummary;
 	onNewSession: () => void;
 	onToggleTerminal: () => void;
@@ -74,4 +75,4 @@ export function TitleBar(props: {
 			</div>
 		</header>
 	);
-}
+});

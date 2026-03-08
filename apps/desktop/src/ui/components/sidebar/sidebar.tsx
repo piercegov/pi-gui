@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Plus, FolderOpen, Trash2, ExternalLink, Eye, MoreHorizontal, Archive, Pencil, ArchiveRestore, Settings } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { ProjectSummary, SessionSummary } from "@shared/models";
@@ -20,7 +21,7 @@ function relativeTime(ts: number) {
 	return `${Math.floor(hours / 24)}d`;
 }
 
-export function Sidebar(props: {
+export const Sidebar = memo(function Sidebar(props: {
 	projects: ProjectSummary[];
 	selectedProjectId?: string;
 	sessions: SessionSummary[];
@@ -241,4 +242,4 @@ export function Sidebar(props: {
 			</div>
 		</aside>
 	);
-}
+});

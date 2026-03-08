@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2, AlertCircle, Loader2, Flag, RotateCcw } from "lucide-react";
-import type { CheckpointSummaryView, ConversationEntryView, SessionSummary, ToolActivityView } from "@shared/models";
+import type { CheckpointSummaryView, ConversationEntryView, SessionSummary } from "@shared/models";
+import { useConversationStore } from "@ui/stores/conversation-store";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 
 /** Returns true if an assistant entry contains only tool-call references (no real text). */
@@ -138,7 +139,7 @@ function groupEntries(
 	return merged;
 }
 
-function CheckpointBar(props: {
+const CheckpointBar = memo(function CheckpointBar(props: {
 	checkpoint: CheckpointSummaryView;
 	onRestore: (checkpointId: string) => void;
 }) {
@@ -179,9 +180,9 @@ function CheckpointBar(props: {
 			</div>
 		</div>
 	);
-}
+});
 
-function ToolInvocationCard(props: { entry: ConversationEntryView }) {
+const ToolInvocationCard = memo(function ToolInvocationCard(props: { entry: ConversationEntryView }) {
 	const [open, setOpen] = useState(false);
 	const { entry } = props;
 	const isError = entry.status === "error";
@@ -243,7 +244,7 @@ function ToolInvocationCard(props: { entry: ConversationEntryView }) {
 			)}
 		</div>
 	);
-}
+});
 
 function badge(session?: SessionSummary) {
 	if (!session) return [];
@@ -255,19 +256,14 @@ function badge(session?: SessionSummary) {
 	];
 }
 
-export function ConversationPane(props: {
-	session?: SessionSummary;
-	entries: ConversationEntryView[];
-	toolActivity: ToolActivityView[];
-	checkpoints: CheckpointSummaryView[];
+function ChatInput(props: {
+	busy: boolean;
 	onSendPrompt: (text: string) => Promise<void>;
 	onSteer: (text: string) => Promise<void>;
 	onFollowUp: (text: string) => Promise<void>;
 	onAbort: () => Promise<void>;
-	onRestoreCheckpoint: (checkpointId: string) => Promise<void>;
 }) {
 	const [value, setValue] = useState("");
-	const busy = props.session?.status === "running";
 
 	const submit = async (mode: "send" | "steer" | "followup") => {
 		if (!value.trim()) return;
@@ -278,6 +274,79 @@ export function ConversationPane(props: {
 		if (mode === "followup") await props.onFollowUp(text);
 	};
 
+	return (
+		<div className="border-t border-surface-border bg-surface-0 px-4 py-3">
+			<div className="mx-auto max-w-4xl">
+				<textarea
+					value={value}
+					onChange={(event) => setValue(event.target.value)}
+					onKeyDown={(event) => {
+						if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+							event.preventDefault();
+							void submit(props.busy ? "followup" : "send");
+						}
+					}}
+					rows={3}
+					placeholder="Ask for follow-up changes..."
+					className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-xs text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
+				/>
+				<div className="mt-2 flex items-center justify-between">
+					<span className="text-2xs text-white/20">
+						{props.busy ? "Session is running" : "Cmd+Enter to send"}
+					</span>
+					<div className="flex items-center gap-1">
+						{props.busy ? (
+							<>
+								<button
+									onClick={() => submit("steer")}
+									className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
+								>
+									<Zap className="h-3 w-3" />
+									Steer
+								</button>
+								<button
+									onClick={() => submit("followup")}
+									className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
+								>
+									<CornerDownRight className="h-3 w-3" />
+									Follow-up
+								</button>
+								<button
+									onClick={props.onAbort}
+									className="flex items-center gap-1 px-2.5 py-1 text-xs text-state-error/80 transition hover:bg-state-error/10 hover:text-state-error"
+								>
+									<Square className="h-3 w-3" />
+									Abort
+								</button>
+							</>
+						) : null}
+						<button
+							onClick={() => submit("send")}
+							className="flex items-center gap-1 bg-accent px-3 py-1 text-xs font-medium text-black transition hover:brightness-110"
+						>
+							<Send className="h-3 w-3" />
+							Send
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+const ConversationContent = memo(function ConversationContent(props: {
+	session: SessionSummary;
+	onRestoreCheckpoint: (checkpointId: string) => Promise<void>;
+}) {
+	const entries = useConversationStore((s) => s.entries);
+	const toolActivity = useConversationStore((s) => s.toolActivity);
+	const checkpoints = useConversationStore((s) => s.checkpoints);
+
+	const grouped = useMemo(
+		() => groupEntries(entries, checkpoints),
+		[entries, checkpoints],
+	);
+
 	const handleRestore = (checkpointId: string) => {
 		if (!window.confirm("Restore working directory to this checkpoint? Current changes will be overwritten.")) {
 			return;
@@ -285,25 +354,12 @@ export function ConversationPane(props: {
 		void props.onRestoreCheckpoint(checkpointId);
 	};
 
-	if (!props.session) {
-		return (
-			<section className="flex h-full items-center justify-center bg-surface-1">
-				<div className="text-center">
-					<div className="text-xs text-white/25">No session open</div>
-					<p className="mt-2 text-xs text-white/40">
-						Select a thread or create a new one to start.
-					</p>
-				</div>
-			</section>
-		);
-	}
-
 	return (
-		<section className="flex h-full flex-col bg-surface-1">
+		<>
 			{/* Tool activity bar */}
-			{props.toolActivity.length > 0 ? (
+			{toolActivity.length > 0 ? (
 				<div className="flex gap-px border-b border-surface-border bg-surface-0">
-					{props.toolActivity.slice(0, 4).map((activity) => (
+					{toolActivity.slice(0, 4).map((activity) => (
 						<div
 							key={activity.id}
 							className="flex-1 border-r border-surface-border px-3 py-2 last:border-r-0"
@@ -338,7 +394,7 @@ export function ConversationPane(props: {
 					</div>
 
 					<div className="space-y-1">
-						{groupEntries(props.entries, props.checkpoints).map((block) => {
+						{grouped.map((block) => {
 							if (block.type === "checkpoint") {
 								return (
 									<CheckpointBar
@@ -411,64 +467,44 @@ export function ConversationPane(props: {
 					</div>
 				</div>
 			</div>
+		</>
+	);
+});
 
-			{/* Input area */}
-			<div className="border-t border-surface-border bg-surface-0 px-4 py-3">
-				<div className="mx-auto max-w-4xl">
-					<textarea
-						value={value}
-						onChange={(event) => setValue(event.target.value)}
-						onKeyDown={(event) => {
-							if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-								event.preventDefault();
-								void submit(busy ? "followup" : "send");
-							}
-						}}
-						rows={3}
-						placeholder="Ask for follow-up changes..."
-						className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-xs text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
-					/>
-					<div className="mt-2 flex items-center justify-between">
-						<span className="text-2xs text-white/20">
-							{busy ? "Session is running" : "Cmd+Enter to send"}
-						</span>
-						<div className="flex items-center gap-1">
-							{busy ? (
-								<>
-									<button
-										onClick={() => submit("steer")}
-										className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
-									>
-										<Zap className="h-3 w-3" />
-										Steer
-									</button>
-									<button
-										onClick={() => submit("followup")}
-										className="flex items-center gap-1 px-2.5 py-1 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
-									>
-										<CornerDownRight className="h-3 w-3" />
-										Follow-up
-									</button>
-									<button
-										onClick={props.onAbort}
-										className="flex items-center gap-1 px-2.5 py-1 text-xs text-state-error/80 transition hover:bg-state-error/10 hover:text-state-error"
-									>
-										<Square className="h-3 w-3" />
-										Abort
-									</button>
-								</>
-							) : null}
-							<button
-								onClick={() => submit("send")}
-								className="flex items-center gap-1 bg-accent px-3 py-1 text-xs font-medium text-black transition hover:brightness-110"
-							>
-								<Send className="h-3 w-3" />
-								Send
-							</button>
-						</div>
-					</div>
+export const ConversationPane = memo(function ConversationPane(props: {
+	session?: SessionSummary;
+	onSendPrompt: (text: string) => Promise<void>;
+	onSteer: (text: string) => Promise<void>;
+	onFollowUp: (text: string) => Promise<void>;
+	onAbort: () => Promise<void>;
+	onRestoreCheckpoint: (checkpointId: string) => Promise<void>;
+}) {
+	if (!props.session) {
+		return (
+			<section className="flex h-full items-center justify-center bg-surface-1">
+				<div className="text-center">
+					<div className="text-xs text-white/25">No session open</div>
+					<p className="mt-2 text-xs text-white/40">
+						Select a thread or create a new one to start.
+					</p>
 				</div>
-			</div>
+			</section>
+		);
+	}
+
+	return (
+		<section className="flex h-full flex-col bg-surface-1">
+			<ConversationContent
+				session={props.session}
+				onRestoreCheckpoint={props.onRestoreCheckpoint}
+			/>
+			<ChatInput
+				busy={props.session.status === "running"}
+				onSendPrompt={props.onSendPrompt}
+				onSteer={props.onSteer}
+				onFollowUp={props.onFollowUp}
+				onAbort={props.onAbort}
+			/>
 		</section>
 	);
-}
+});
