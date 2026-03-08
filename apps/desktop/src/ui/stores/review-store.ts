@@ -106,6 +106,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	},
 	updateRevision(revision) {
 		set((state) => {
+			if (state.sessionId && revision.sessionId !== state.sessionId) return state;
 			const revisions = [...state.revisions];
 			const index = revisions.findIndex((item) => item.id === revision.id);
 			if (index === -1) revisions.push(revision);
@@ -122,7 +123,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		});
 	},
 	updateThread(thread) {
-		set((state) => ({
+		set((state) => {
+			if (state.sessionId && thread.sessionId !== state.sessionId) return state;
+			return {
 			revisions: state.revisions.map((revision) =>
 				revision.id !== thread.reviewRoundId
 					? revision
@@ -133,7 +136,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 								: [...revision.threads, thread],
 						},
 			),
-		}));
+		};
+		});
 	},
 	async createThread(anchor, body) {
 		const state = get();

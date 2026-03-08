@@ -35,7 +35,16 @@ export const useConversationStore = create<ConversationState>((set) => ({
 	},
 	applyEvent(event) {
 		set((state) => {
-			if (state.sessionId && "sessionId" in event && event.sessionId !== state.sessionId) {
+			// Extract sessionId from event — it may be top-level or nested in entry/activity/checkpoint/usage
+			let eventSessionId: string | undefined;
+			if ("sessionId" in event) {
+				eventSessionId = event.sessionId;
+			} else if (event.type === "message_upsert" || event.type === "review_notice") {
+				eventSessionId = event.entry.sessionId;
+			} else if (event.type === "tool_activity") {
+				eventSessionId = event.activity.sessionId;
+			}
+			if (state.sessionId && eventSessionId && eventSessionId !== state.sessionId) {
 				return state;
 			}
 			if (event.type === "message_upsert" || event.type === "review_notice") {
