@@ -231,6 +231,10 @@ export class SessionService {
 		await this.refreshAndPublishSession(sessionId);
 	}
 
+	async refreshSessionState(sessionId: string) {
+		await this.refreshGitStatus(sessionId);
+	}
+
 	private async ensureRuntime(sessionId: string) {
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
@@ -285,7 +289,7 @@ export class SessionService {
 		) {
 			throw new Error("Model provider and model id must both be provided.");
 		}
-		const mode =
+		let mode =
 			project.isGit && (params.mode ?? settings.defaultSessionMode) === "worktree"
 				? "worktree"
 				: "local";
@@ -310,6 +314,8 @@ export class SessionService {
 				branchName: worktreeBranch,
 			});
 			cwdPath = worktreePath;
+		} else if (mode === "worktree") {
+			mode = "local";
 		}
 		const session = await this.runtime.createSession({
 			id: sessionId,

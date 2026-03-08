@@ -77,6 +77,8 @@ type ManagedRuntime = {
 
 export class PiRuntimeManager {
 	private readonly runtimes = new Map<string, ManagedRuntime>();
+	private readonly appliedEnvironmentOverrideKeys = new Set<string>();
+	private readonly environmentOverrideBaselines = new Map<string, string | undefined>();
 	private hooks?: RuntimeHooks;
 	private reviewState?: {
 		isFreezeActive(sessionId: string): boolean;
@@ -228,10 +230,29 @@ export class PiRuntimeManager {
 
 	private applyEnvironmentOverrides() {
 		const { environmentOverrides } = this.appSettings.getAppSettings();
-		for (const [key, value] of Object.entries(environmentOverrides)) {
-			if (key && value) {
-				process.env[key] = value;
+		const activeEntries = Object.entries(environmentOverrides).filter(
+			([key, value]) => Boolean(key && value),
+		);
+		const activeKeys = new Set(activeEntries.map(([key]) => key));
+
+		for (const key of this.appliedEnvironmentOverrideKeys) {
+			if (activeKeys.has(key)) continue;
+			const baselineValue = this.environmentOverrideBaselines.get(key);
+			if (baselineValue === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = baselineValue;
 			}
+			this.environmentOverrideBaselines.delete(key);
+		}
+
+		this.appliedEnvironmentOverrideKeys.clear();
+		for (const [key, value] of activeEntries) {
+			if (!this.environmentOverrideBaselines.has(key)) {
+				this.environmentOverrideBaselines.set(key, process.env[key]);
+			}
+			process.env[key] = value;
+			this.appliedEnvironmentOverrideKeys.add(key);
 		}
 	}
 
