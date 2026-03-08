@@ -167,10 +167,12 @@ export class SessionService {
 			`
 			update sessions
 			set status = coalesce(?, status),
+			    review_state = case when ? = 'running' then 'none' else review_state end,
 			    last_activity_at = ?,
 			    metadata_json = ?
 			where id = ?
 			`,
+			patch.status ?? null,
 			patch.status ?? null,
 			Date.now(),
 			JSON.stringify(metadata),
