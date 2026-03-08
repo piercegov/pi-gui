@@ -1,7 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-diff-view";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { getChangeKey, Diff, Hunk, parseDiff } from "react-diff-view";
 import type { HunkTokens } from "react-diff-view";
-import { refractor } from "refractor";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type {
@@ -16,57 +15,21 @@ import type {
 	ThreadResolution,
 } from "@shared/models";
 import { createAnchorFromChange } from "@ui/lib/diff-utils";
+import { measureDiffPerf, recordDiffPerf } from "@ui/lib/diff-perf";
 import { MarkdownRenderer } from "@ui/lib/markdown";
-import { SessionInspector } from "./session-inspector";
+import { MemoizedSessionInspector } from "./session-inspector";
 
-const EXT_TO_LANG: Record<string, string> = {
-	ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-	py: "python", rb: "ruby", rs: "rust", go: "go",
-	java: "java", kt: "kotlin", swift: "swift", c: "c",
-	cpp: "cpp", h: "cpp", cs: "csharp", css: "css",
-	scss: "scss", html: "html", vue: "vue", svelte: "svelte",
-	json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
-	md: "markdown", sql: "sql", sh: "bash", bash: "bash",
-	zsh: "bash", fish: "bash", dockerfile: "docker",
-	xml: "xml", graphql: "graphql", lua: "lua", zig: "zig",
-};
-
-function langFromPath(path: string): string | undefined {
-	const ext = path.split(".").pop()?.toLowerCase();
-	if (!ext) return undefined;
-	const lang = EXT_TO_LANG[ext];
-	if (!lang) return undefined;
-	try {
-		refractor.highlight("", lang);
-		return lang;
-	} catch {
-		return undefined;
-	}
-}
-
-const refractorCompat = {
-	highlight(code: string, language: string) {
-		const result = refractor.highlight(code, language);
-		return result.children;
-	},
-};
+const INLINE_DIFF_RENDER_FILE_LIMIT = 24;
+const MIN_SELECTION_CHARS = 2;
+const ENABLE_DIFF_SYNTAX_HIGHLIGHT = false;
+const ENABLE_DIFF_EDIT_MARKING = false;
 
 function tokenizeHunks(
-	hunks: Parameters<typeof tokenize>[0],
-	language?: string,
+	hunks: Array<{ changes: unknown[] }>,
 ): HunkTokens | undefined {
+	if (!ENABLE_DIFF_SYNTAX_HIGHLIGHT && !ENABLE_DIFF_EDIT_MARKING) return undefined;
 	if (!hunks.length) return undefined;
-	try {
-		const options = language
-			? { highlight: true as const, refractor: refractorCompat, language }
-			: { highlight: false as const };
-		return tokenize(hunks, {
-			...options,
-			enhancers: [markEdits(hunks, { type: "block" })],
-		});
-	} catch {
-		return undefined;
-	}
+	return undefined;
 }
 
 function ResolutionBadge(props: { resolution: ThreadResolution }) {
@@ -242,8 +205,108 @@ function fileChangeCount(file: { hunks: Array<{ changes: unknown[] }> }) {
 	return count;
 }
 
+type DiffPaneSession = Pick<
+	SessionSummary,
+	"id" | "status" | "mode" | "baseRef" | "worktreeBranch" | "worktreePath" | "cwdPath"
+>;
+
+function buildWidgetsForFile(params: {
+	diffId?: string;
+	file: {
+		hunks: Array<{ changes: Array<{ type: string } & Record<string, unknown>> }>;
+	};
+	path: string;
+	threadIndex: Map<string, CommentThreadView[]>;
+	draftAnchor: CommentAnchor | null;
+	draftBody: string;
+	onReplyToThread: (threadId: string, body: string) => Promise<void>;
+	onResolveThread: (threadId: string, resolution: ThreadResolution) => Promise<void>;
+	onReopenThread: (threadId: string) => Promise<void>;
+	onCancelDraft: () => void;
+	onSubmitDraft: () => Promise<void>;
+	onDraftBodyChange: (value: string) => void;
+}) {
+	return measureDiffPerf(
+		"build_widgets",
+		() => {
+			const widgets: Record<string, React.ReactNode> = {};
+			for (const hunk of params.file.hunks) {
+				for (const change of hunk.changes) {
+					const oldLine = lineValue(change, "old");
+					const newLine = lineValue(change, "new");
+					const oldThreads =
+						oldLine >= 0
+							? params.threadIndex.get(threadLookupKey(params.path, "old", oldLine))
+							: undefined;
+					const newThreads =
+						newLine >= 0
+							? params.threadIndex.get(threadLookupKey(params.path, "new", newLine))
+							: undefined;
+					const threads =
+						oldThreads && newThreads
+							? [...oldThreads, ...newThreads]
+							: oldThreads ?? newThreads ?? [];
+					const key = getChangeKey(change as never);
+					const isDraft =
+						params.draftAnchor &&
+						params.draftAnchor.filePath === params.path &&
+						((params.draftAnchor.side === "old" && params.draftAnchor.line === oldLine) ||
+							(params.draftAnchor.side === "new" &&
+								params.draftAnchor.line === newLine));
+					if (threads.length === 0 && !isDraft) continue;
+					widgets[key] = (
+						<div className="py-1.5">
+							{threads.length > 0 ? (
+								<InlineThread
+									threads={threads}
+									onReply={params.onReplyToThread}
+									onResolve={params.onResolveThread}
+									onReopen={params.onReopenThread}
+								/>
+							) : null}
+							{isDraft ? (
+								<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
+									<textarea
+										value={params.draftBody}
+										onChange={(event) =>
+											params.onDraftBodyChange(event.target.value)
+										}
+										rows={3}
+										placeholder="Leave a review comment..."
+										className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+									/>
+									<div className="mt-2 flex justify-end gap-1.5">
+										<button
+											onClick={params.onCancelDraft}
+											className="px-2.5 py-1 text-xs text-white/40 hover:bg-white/5 hover:text-white/60"
+										>
+											Cancel
+										</button>
+										<button
+											onClick={() => void params.onSubmitDraft()}
+											className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
+										>
+											Comment
+										</button>
+									</div>
+								</div>
+							) : null}
+						</div>
+					);
+				}
+			}
+			return widgets;
+		},
+		{
+			diffId: params.diffId,
+			filePath: params.path,
+			metadata: { changes: fileChangeCount(params.file) },
+		},
+	);
+}
+
 type DiffPaneProps = {
-	session?: SessionSummary;
+	session?: DiffPaneSession;
 	inspector?: SessionInspectorView;
 	diff?: DiffSnapshotView;
 	revisions: RevisionView[];
@@ -286,9 +349,17 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		side: "old" | "new";
 	} | null>(null);
 	const diffContentRef = useRef<HTMLDivElement>(null);
-
+	const deferredSearch = useDeferredValue(search);
 	const parsedFiles = useMemo(
-		() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
+		() =>
+			measureDiffPerf(
+				"parse_diff",
+				() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
+				{
+					diffId: props.diff?.id,
+					metadata: { patchBytes: props.diff?.patch.length ?? 0 },
+				},
+			),
 		[props.diff],
 	);
 
@@ -310,9 +381,11 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 	const filteredFiles = useMemo(() => {
 		return parsedFiles.filter((file) =>
-			(file.newPath || file.oldPath).toLowerCase().includes(search.toLowerCase()),
+			(file.newPath || file.oldPath)
+				.toLowerCase()
+				.includes(deferredSearch.toLowerCase()),
 		);
-	}, [parsedFiles, search]);
+	}, [deferredSearch, parsedFiles]);
 
 	const filteredFileIndexByPath = useMemo(() => {
 		const map = new Map<string, number>();
@@ -365,19 +438,90 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	}, [filteredFiles]);
 
 	const tokenCacheRef = useRef<Map<string, HunkTokens | undefined>>(new Map());
+	const widgetCacheRef = useRef<Map<string, Record<string, React.ReactNode>>>(new Map());
 	useEffect(() => {
 		tokenCacheRef.current.clear();
+		widgetCacheRef.current.clear();
 	}, [props.diff?.id, props.diff?.patch]);
 
 	const getTokensForFile = useCallback(
-		(path: string, hunks: Parameters<typeof tokenize>[0]) => {
+		(path: string, hunks: Array<{ changes: unknown[] }>) => {
 			const cache = tokenCacheRef.current;
 			if (cache.has(path)) return cache.get(path);
-			const tokens = tokenizeHunks(hunks, langFromPath(path));
+			const tokens = measureDiffPerf(
+				"tokenize_file",
+				() => tokenizeHunks(hunks),
+				{
+					diffId: props.diff?.id,
+					filePath: path,
+					metadata: { enabled: ENABLE_DIFF_SYNTAX_HIGHLIGHT || ENABLE_DIFF_EDIT_MARKING },
+				},
+			);
 			cache.set(path, tokens);
 			return tokens;
 		},
-		[],
+		[props.diff?.id],
+	);
+
+	const visibleThreadKey = useMemo(
+		() =>
+			visibleThreads
+				.map((thread) => `${thread.id}:${thread.status}:${thread.updatedAt}:${thread.messages.length}`)
+				.join("|"),
+		[visibleThreads],
+	);
+	const draftKey = draftAnchor
+		? `${draftAnchor.filePath}:${draftAnchor.side}:${draftAnchor.line}:${draftBody.length}`
+		: "none";
+
+	const getWidgetsForFile = useCallback(
+		(
+			file: {
+				hunks: Array<{ changes: Array<{ type: string } & Record<string, unknown>> }>;
+			},
+			path: string,
+		) => {
+			const cacheKey = `${path}\u0000${visibleThreadKey}\u0000${draftKey}`;
+			const cache = widgetCacheRef.current;
+			const cached = cache.get(cacheKey);
+			if (cached) return cached;
+			const widgets = buildWidgetsForFile({
+				diffId: props.diff?.id,
+				file,
+				path,
+				threadIndex,
+				draftAnchor,
+				draftBody,
+				onReplyToThread: props.onReplyToThread,
+				onResolveThread: props.onResolveThread,
+				onReopenThread: props.onReopenThread,
+				onCancelDraft: () => {
+					setDraftAnchor(null);
+					setDraftBody("");
+				},
+				onSubmitDraft: async () => {
+					if (!draftAnchor || !draftBody.trim()) return;
+					await props.onCreateThread(draftAnchor, draftBody);
+					setDraftBody("");
+					setDraftAnchor(null);
+				},
+				onDraftBodyChange: setDraftBody,
+			});
+			cache.set(cacheKey, widgets);
+			return widgets;
+		},
+		[
+			draftAnchor,
+			draftBody,
+			draftKey,
+			props.diff?.id,
+			props.onCreateThread,
+			props.onReopenThread,
+			props.onReplyToThread,
+			props.onResolveThread,
+			threadIndex,
+			visibleThreadKey,
+		],
 	);
 
 	const fileListParentRef = useRef<HTMLDivElement | null>(null);
@@ -387,6 +531,8 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		estimateSize: () => 44,
 		gap: 1,
 	});
+
+	const shouldVirtualizeDiffContent = filteredFiles.length > INLINE_DIFF_RENDER_FILE_LIMIT;
 
 	const estimateDiffItemSize = useCallback((index: number) => {
 		const file = filteredFiles[index];
@@ -406,6 +552,19 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		overscan: 2,
 		gap: 16,
 	});
+
+	useEffect(() => {
+		recordDiffPerf({
+			kind: "diff_render_mode",
+			diffId: props.diff?.id,
+			durationMs: 0,
+			timestamp: Date.now(),
+			metadata: {
+				virtualized: shouldVirtualizeDiffContent,
+				fileCount: filteredFiles.length,
+			},
+		});
+	}, [filteredFiles.length, props.diff?.id, shouldVirtualizeDiffContent]);
 
 	const revisionState = selectedRevision?.state;
 	const hasDraftComments = (selectedRevision?.threads.length ?? 0) > 0;
@@ -432,8 +591,15 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	const scrollToFile = useCallback((filePath: string) => {
 		const index = filteredFileIndexByPath.get(filePath);
 		if (index === undefined) return;
-		diffVirtualizer.scrollToIndex(index, { align: "start" });
-	}, [diffVirtualizer, filteredFileIndexByPath]);
+		if (shouldVirtualizeDiffContent) {
+			diffVirtualizer.scrollToIndex(index, { align: "start" });
+			return;
+		}
+		const target = diffContentRef.current?.querySelector<HTMLElement>(
+			`[data-file-path="${CSS.escape(filePath)}"]`,
+		);
+		target?.scrollIntoView({ block: "start" });
+	}, [diffVirtualizer, filteredFileIndexByPath, shouldVirtualizeDiffContent]);
 
 	const handleDiffMouseUp = useCallback(
 		(_e: React.MouseEvent) => {
@@ -442,7 +608,10 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			if (!diffContentRef.current || !props.diff) return;
 
 			const selectedText = sel.toString();
+			if (selectedText.trim().length < MIN_SELECTION_CHARS) return;
 			const range = sel.getRangeAt(0);
+			const startElement = range.startContainer.parentElement;
+			if (!startElement?.closest(".diff-code")) return;
 			const rect = range.getBoundingClientRect();
 			const popupX = rect.left + rect.width / 2;
 			const popupY = rect.top - 8;
@@ -536,6 +705,118 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		}
 	}, [selectionPopup, filteredFiles, props.diff]);
 
+	const renderFile = useCallback(
+		(
+			file: (typeof filteredFiles)[number],
+			key: React.Key,
+			options?: {
+				style?: React.CSSProperties;
+				index?: number;
+				measure?: boolean;
+			},
+		) => {
+			if (!file) return null;
+			const path = file.newPath || file.oldPath;
+			const isCollapsed = collapsedFiles.has(path);
+			const tokens = isCollapsed ? undefined : getTokensForFile(path, file.hunks);
+			const stats = fileStatsByPath.get(path) ?? { additions: 0, deletions: 0 };
+			const widgets = isCollapsed ? undefined : getWidgetsForFile(file as never, path);
+			return (
+				<div
+					key={key}
+					ref={options?.measure ? diffVirtualizer.measureElement : undefined}
+					data-index={options?.index}
+					className={options?.style ? "absolute left-0 right-0" : undefined}
+					style={options?.style}
+				>
+					<div data-file-path={path}>
+						<button
+							type="button"
+							onClick={() =>
+								setCollapsedFiles((prev) => {
+									const next = new Set(prev);
+									if (next.has(path)) next.delete(path);
+									else next.add(path);
+									return next;
+								})
+							}
+							className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
+						>
+							<ChevronRight
+								className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+							/>
+							<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
+							<span className="text-2xs text-state-applied">+{stats.additions}</span>
+							<span className="text-2xs text-state-error">-{stats.deletions}</span>
+							<span className="text-2xs uppercase tracking-wider text-white/25">
+								{file.type}
+							</span>
+						</button>
+						{isCollapsed ? null : (
+							<Diff
+								viewType={viewType}
+								diffType={file.type}
+								hunks={file.hunks}
+								tokens={tokens}
+								gutterType="default"
+								gutterEvents={{
+									onClick: ({ change }) => {
+										if (!change || !props.diff) return;
+										const hunk = file.hunks.find((candidate) =>
+											candidate.changes.includes(change),
+										);
+										if (!hunk) return;
+										setDraftAnchor(
+											createAnchorFromChange({
+												file,
+												hunk,
+												change,
+												diff: props.diff,
+											}),
+										);
+									},
+								}}
+								widgets={widgets}
+							>
+								{(hunks) =>
+									hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
+							</Diff>
+						)}
+					</div>
+				</div>
+			);
+		},
+		[
+			collapsedFiles,
+			diffVirtualizer.measureElement,
+			fileStatsByPath,
+			getTokensForFile,
+			getWidgetsForFile,
+			props.diff,
+			viewType,
+		],
+	);
+
+	useEffect(() => {
+		const diffId = props.diff?.id;
+		if (!diffId) return;
+		const start = performance.now();
+		const raf = window.requestAnimationFrame(() => {
+			recordDiffPerf({
+				kind: "diff_render",
+				diffId,
+				durationMs: performance.now() - start,
+				timestamp: Date.now(),
+				metadata: {
+					fileCount: filteredFiles.length,
+					virtualized: shouldVirtualizeDiffContent,
+					viewType,
+				},
+			});
+		});
+		return () => window.cancelAnimationFrame(raf);
+	}, [filteredFiles.length, props.diff?.id, shouldVirtualizeDiffContent, viewType]);
+
 	if (!props.diff) {
 		return (
 			<section className="flex h-full flex-col border-l border-surface-border bg-surface-0">
@@ -550,7 +831,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				</div>
 				{inspectorOpen ? (
 					<div className="overflow-auto border-b border-surface-border px-3 py-3">
-						<SessionInspector
+						<MemoizedSessionInspector
 							session={props.session}
 							inspector={props.inspector}
 							onCreateManualCheckpoint={props.onCreateManualCheckpoint}
@@ -778,7 +1059,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 						<div ref={fileListParentRef} className="flex-1 overflow-auto px-2 py-1">
 							{inspectorOpen ? (
 								<div className="mb-2 border-b border-surface-border pb-2">
-									<SessionInspector
+									<MemoizedSessionInspector
 										session={props.session}
 										inspector={props.inspector}
 										onCreateManualCheckpoint={props.onCreateManualCheckpoint}
@@ -818,156 +1099,21 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 				{/* Diff content */}
 				<div ref={diffContentRef} className="diff-shell overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
-					<div style={{ height: `${diffVirtualizer.getTotalSize()}px`, position: "relative" }}>
-						{diffVirtualizer.getVirtualItems().map((item) => {
-							const file = filteredFiles[item.index];
-							if (!file) return null;
-							const path = file.newPath || file.oldPath;
-							const isCollapsed = collapsedFiles.has(path);
-							const tokens = isCollapsed ? undefined : getTokensForFile(path, file.hunks);
-							const stats = fileStatsByPath.get(path) ?? { additions: 0, deletions: 0 };
-							return (
-								<div
-									key={item.key}
-									ref={diffVirtualizer.measureElement}
-									data-index={item.index}
-									className="absolute left-0 right-0"
-									style={{ transform: `translateY(${item.start}px)` }}
-								>
-									<div data-file-path={path}>
-										<button
-											type="button"
-											onClick={() =>
-												setCollapsedFiles((prev) => {
-													const next = new Set(prev);
-													if (next.has(path)) next.delete(path);
-													else next.add(path);
-													return next;
-												})
-											}
-											className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
-										>
-											<ChevronRight
-												className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-											/>
-											<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
-											<span className="text-2xs text-state-applied">+{stats.additions}</span>
-											<span className="text-2xs text-state-error">-{stats.deletions}</span>
-											<span className="text-2xs uppercase tracking-wider text-white/25">
-												{file.type}
-											</span>
-										</button>
-										{isCollapsed ? null : <Diff
-											viewType={viewType}
-											diffType={file.type}
-											hunks={file.hunks}
-											tokens={tokens}
-											gutterType="default"
-											gutterEvents={{
-												onClick: ({ change }) => {
-													if (!change || !props.diff) return;
-													const hunk = file.hunks.find((candidate) =>
-														candidate.changes.includes(change),
-													);
-													if (!hunk) return;
-													setDraftAnchor(
-														createAnchorFromChange({
-															file,
-															hunk,
-															change,
-															diff: props.diff,
-														}),
-													);
-												},
-											}}
-											widgets={Object.fromEntries(
-												file.hunks
-													.flatMap((hunk) =>
-													hunk.changes.map((change) => {
-														const oldLine = lineValue(change as never, "old");
-														const newLine = lineValue(change as never, "new");
-														const oldThreads =
-															oldLine >= 0
-																? threadIndex.get(threadLookupKey(path, "old", oldLine))
-																: undefined;
-														const newThreads =
-															newLine >= 0
-																? threadIndex.get(threadLookupKey(path, "new", newLine))
-																: undefined;
-														const threads =
-															oldThreads && newThreads
-																? [...oldThreads, ...newThreads]
-																: oldThreads ?? newThreads ?? [];
-														const key = getChangeKey(change);
-														const isDraft =
-															draftAnchor &&
-															draftAnchor.filePath === path &&
-															((draftAnchor.side === "old" && draftAnchor.line === oldLine) ||
-																(draftAnchor.side === "new" && draftAnchor.line === newLine));
-														if (threads.length === 0 && !isDraft) return [key, null];
-														return [
-															key,
-															<div className="py-1.5">
-																{threads.length > 0 ? (
-																	<InlineThread
-																		threads={threads}
-																		onReply={props.onReplyToThread}
-																		onResolve={props.onResolveThread}
-																		onReopen={props.onReopenThread}
-																	/>
-																) : null}
-																{isDraft ? (
-																	<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
-																		<textarea
-																			value={draftBody}
-																			onChange={(event) =>
-																				setDraftBody(event.target.value)
-																			}
-																			rows={3}
-																			placeholder="Leave a review comment..."
-																			className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
-																		/>
-																		<div className="mt-2 flex justify-end gap-1.5">
-																			<button
-																				onClick={() => {
-																					setDraftAnchor(null);
-																					setDraftBody("");
-																				}}
-																				className="px-2.5 py-1 text-xs text-white/40 hover:bg-white/5 hover:text-white/60"
-																			>
-																				Cancel
-																			</button>
-																			<button
-																				onClick={async () => {
-																					if (!draftAnchor || !draftBody.trim()) return;
-																					await props.onCreateThread(
-																						draftAnchor,
-																						draftBody,
-																					);
-																					setDraftBody("");
-																					setDraftAnchor(null);
-																				}}
-																				className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
-																			>
-																				Comment
-																			</button>
-																		</div>
-																	</div>
-																) : null}
-															</div>,
-														];
-													}),
-												)
-												.filter((entry) => entry[1] !== null),
-										)}
-										>
-											{(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-										</Diff>}
-									</div>
-								</div>
-							);
-						})}
-					</div>
+					{shouldVirtualizeDiffContent ? (
+						<div style={{ height: `${diffVirtualizer.getTotalSize()}px`, position: "relative" }}>
+							{diffVirtualizer.getVirtualItems().map((item) =>
+								renderFile(filteredFiles[item.index], item.key, {
+									index: item.index,
+									measure: true,
+									style: { transform: `translateY(${item.start}px)` },
+								}),
+							)}
+						</div>
+					) : (
+						<div className="space-y-4">
+							{filteredFiles.map((file, index) => renderFile(file, file.newPath || file.oldPath || index))}
+						</div>
+					)}
 				</div>
 			</div>
 

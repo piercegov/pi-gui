@@ -93,26 +93,53 @@ function ContextUsageBar({ usage }: { usage: ContextUsageView }) {
 }
 
 export function App() {
-	const { projects, selectedProjectId, loadProjects, addProject, removeProject, selectProject, updateProjectSettings } =
-		useProjectsStore();
-	const {
-		sessionsByProject,
-		inspectorsBySession,
-		selectedSessionId,
-		loadSessions,
-		openSession,
-		loadInspector,
-		createSession,
-		renameSession,
-		archiveSession,
-		repairWorktree,
-		createManualCheckpoint,
-		upsertSummary,
-		currentHydration,
-	} = useSessionsStore();
-	const { entries, toolActivity, checkpoints, contextUsage, hydrate: hydrateConversation, applyEvent } =
-		useConversationStore();
-	const review = useReviewStore();
+	const projects = useProjectsStore((state) => state.projects);
+	const selectedProjectId = useProjectsStore((state) => state.selectedProjectId);
+	const loadProjects = useProjectsStore((state) => state.loadProjects);
+	const addProject = useProjectsStore((state) => state.addProject);
+	const removeProject = useProjectsStore((state) => state.removeProject);
+	const selectProject = useProjectsStore((state) => state.selectProject);
+	const updateProjectSettings = useProjectsStore((state) => state.updateProjectSettings);
+	const sessionsByProject = useSessionsStore((state) => state.sessionsByProject);
+	const inspectorsBySession = useSessionsStore((state) => state.inspectorsBySession);
+	const selectedSessionId = useSessionsStore((state) => state.selectedSessionId);
+	const loadSessions = useSessionsStore((state) => state.loadSessions);
+	const openSession = useSessionsStore((state) => state.openSession);
+	const loadInspector = useSessionsStore((state) => state.loadInspector);
+	const createSession = useSessionsStore((state) => state.createSession);
+	const renameSession = useSessionsStore((state) => state.renameSession);
+	const archiveSession = useSessionsStore((state) => state.archiveSession);
+	const repairWorktree = useSessionsStore((state) => state.repairWorktree);
+	const createManualCheckpoint = useSessionsStore((state) => state.createManualCheckpoint);
+	const upsertSummary = useSessionsStore((state) => state.upsertSummary);
+	const currentHydration = useSessionsStore((state) => state.currentHydration);
+	const entries = useConversationStore((state) => state.entries);
+	const toolActivity = useConversationStore((state) => state.toolActivity);
+	const checkpoints = useConversationStore((state) => state.checkpoints);
+	const contextUsage = useConversationStore((state) => state.contextUsage);
+	const hydrateConversation = useConversationStore((state) => state.hydrate);
+	const applyEvent = useConversationStore((state) => state.applyEvent);
+	const revisions = useReviewStore((state) => state.revisions);
+	const activeRevisionNumber = useReviewStore((state) => state.activeRevisionNumber);
+	const selectedRevisionNumber = useReviewStore((state) => state.selectedRevisionNumber);
+	const diffMode = useReviewStore((state) => state.diffMode);
+	const currentDiff = useReviewStore((state) => state.currentDiff);
+	const diffStale = useReviewStore((state) => state.diffStale);
+	const hydrateReview = useReviewStore((state) => state.hydrate);
+	const setSelectedRevision = useReviewStore((state) => state.setSelectedRevision);
+	const setDiffMode = useReviewStore((state) => state.setDiffMode);
+	const createThread = useReviewStore((state) => state.createThread);
+	const replyToThread = useReviewStore((state) => state.replyToThread);
+	const resolveThread = useReviewStore((state) => state.resolveThread);
+	const reopenThread = useReviewStore((state) => state.reopenThread);
+	const publishComments = useReviewStore((state) => state.publishComments);
+	const startNextRevision = useReviewStore((state) => state.startNextRevision);
+	const approveRevision = useReviewStore((state) => state.approve);
+	const applyRevision = useReviewStore((state) => state.applyRevision);
+	const applyAndMergeRevision = useReviewStore((state) => state.applyAndMerge);
+	const updateRevision = useReviewStore((state) => state.updateRevision);
+	const updateThread = useReviewStore((state) => state.updateThread);
+	const markStale = useReviewStore((state) => state.markStale);
 	const settings = useSettingsStore((state) => state.settings);
 	const loadSettings = useSettingsStore((state) => state.load);
 	const updateSettings = useSettingsStore((state) => state.update);
@@ -171,13 +198,36 @@ export function App() {
 	}, [currentHydration?.session, selectedSessionId, sessions]);
 	const currentInspector = useMemo(
 		() => (currentSession ? inspectorsBySession[currentSession.id] : undefined),
-		[currentSession, inspectorsBySession],
+		[currentSession?.id, inspectorsBySession],
+	);
+	const diffSession = useMemo(
+		() =>
+			currentSession
+				? {
+						id: currentSession.id,
+						status: currentSession.status,
+						mode: currentSession.mode,
+						baseRef: currentSession.baseRef,
+						worktreeBranch: currentSession.worktreeBranch,
+						worktreePath: currentSession.worktreePath,
+						cwdPath: currentSession.cwdPath,
+					}
+				: undefined,
+		[
+			currentSession?.baseRef,
+			currentSession?.cwdPath,
+			currentSession?.id,
+			currentSession?.mode,
+			currentSession?.status,
+			currentSession?.worktreeBranch,
+			currentSession?.worktreePath,
+		],
 	);
 	const supportsEmbeddedTerminal = currentHydration?.supportsEmbeddedTerminal ?? true;
 
 	const applyHydration = (hydration: SessionHydration) => {
 		hydrateConversation(hydration);
-		review.hydrate(hydration);
+		hydrateReview(hydration);
 		hydrateSettings(hydration);
 	};
 
@@ -212,8 +262,9 @@ export function App() {
 
 	useEffect(() => {
 		if (!currentSession) return;
+		if (inspectorsBySession[currentSession.id]) return;
 		void loadInspector(currentSession.id);
-	}, [currentSession?.id, currentSession?.lastActivityAt, loadInspector]);
+	}, [currentSession?.id, inspectorsBySession, loadInspector]);
 
 	useEffect(() => {
 		const onSessionSummaryUpdated = (summary: SessionSummary) => {
@@ -222,14 +273,14 @@ export function App() {
 		const onSessionEvent = (event: Parameters<typeof applyEvent>[0]) => {
 			applyEvent(event);
 		};
-		const onRevisionUpdated = (revision: Parameters<typeof review.updateRevision>[0]) => {
-			review.updateRevision(revision);
+		const onRevisionUpdated = (revision: Parameters<typeof updateRevision>[0]) => {
+			updateRevision(revision);
 		};
-		const onThreadUpdated = (thread: Parameters<typeof review.updateThread>[0]) => {
-			review.updateThread(thread);
+		const onThreadUpdated = (thread: Parameters<typeof updateThread>[0]) => {
+			updateThread(thread);
 		};
 		const onDiffInvalidated = (payload: { sessionId: string; revisionNumber?: number }) => {
-			review.markStale(payload.sessionId, payload.revisionNumber);
+			markStale(payload.sessionId, payload.revisionNumber);
 		};
 		const onTerminalData = (payload: { sessionId: string; data: string }) => {
 			appendTerminalOutput(payload.sessionId, payload.data);
@@ -261,7 +312,7 @@ export function App() {
 			rpc.removeMessageListener("terminalExit", onTerminalExit);
 			rpc.removeMessageListener("toast", onToast);
 		};
-	}, [appendTerminalOutput, applyEvent, markTerminalExit, review, upsertSummary]);
+	}, [appendTerminalOutput, applyEvent, markStale, markTerminalExit, updateRevision, updateThread, upsertSummary]);
 
 	const promptForProjectPath = async () => {
 		const { path } = await rpc.request.pickProjectDirectory();
@@ -492,26 +543,26 @@ export function App() {
 
 					<div style={{ width: diffPaneWidth, minWidth: 280, maxWidth: "80vw" }} className="shrink-0">
 					<DiffPane
-						session={currentSession}
+						session={diffSession}
 						inspector={currentInspector}
-						diff={review.currentDiff}
-						revisions={review.revisions}
-						activeRevisionNumber={review.activeRevisionNumber}
-						selectedRevisionNumber={review.selectedRevisionNumber}
-						diffMode={review.diffMode}
+						diff={currentDiff}
+						revisions={revisions}
+						activeRevisionNumber={activeRevisionNumber}
+						selectedRevisionNumber={selectedRevisionNumber}
+						diffMode={diffMode}
 						defaultView={settings?.defaultDiffView ?? "split"}
-						diffStale={review.diffStale}
-						onSelectRevision={(n) => review.setSelectedRevision(n)}
-						onSetDiffMode={(mode) => review.setDiffMode(mode)}
-						onCreateThread={(anchor, body) => review.createThread(anchor, body)}
-						onReplyToThread={(threadId, body) => review.replyToThread(threadId, body)}
-						onResolveThread={(threadId, resolution) => review.resolveThread(threadId, resolution)}
-						onReopenThread={(threadId) => review.reopenThread(threadId)}
-						onPublishComments={() => review.publishComments()}
-						onStartNextRevision={() => review.startNextRevision()}
-						onApprove={() => review.approve()}
-						onApplyRevision={() => review.applyRevision()}
-						onApplyAndMerge={(commitMessage) => review.applyAndMerge(commitMessage)}
+						diffStale={diffStale}
+						onSelectRevision={setSelectedRevision}
+						onSetDiffMode={setDiffMode}
+						onCreateThread={createThread}
+						onReplyToThread={replyToThread}
+						onResolveThread={resolveThread}
+						onReopenThread={reopenThread}
+						onPublishComments={publishComments}
+						onStartNextRevision={startNextRevision}
+						onApprove={approveRevision}
+						onApplyRevision={applyRevision}
+						onApplyAndMerge={applyAndMergeRevision}
 						onCreateManualCheckpoint={() =>
 							currentSession
 								? createManualCheckpoint(currentSession.id).then(() => undefined)

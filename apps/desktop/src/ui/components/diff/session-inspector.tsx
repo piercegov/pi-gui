@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ChevronRight, AlertCircle, Copy, Check } from "lucide-react";
 import type {
 	CheckpointSummaryView,
@@ -121,7 +121,10 @@ function TreeSection(props: { tree?: SessionTreeNodeView[] }) {
 }
 
 export function SessionInspector(props: {
-	session?: SessionSummary;
+	session?: Pick<
+		SessionSummary,
+		"id" | "mode" | "baseRef" | "worktreeBranch" | "worktreePath" | "cwdPath"
+	>;
 	inspector?: SessionInspectorView;
 	onCreateManualCheckpoint: () => Promise<void>;
 	onRepairWorktree: () => Promise<void>;
@@ -229,3 +232,5 @@ export function SessionInspector(props: {
 		</div>
 	);
 }
+
+export const MemoizedSessionInspector = memo(SessionInspector);
