@@ -9,6 +9,8 @@ type TerminalState = {
 	appendOutput: (sessionId: string, data: string) => void;
 	markExit: (sessionId: string, exitCode: number) => void;
 	write: (sessionId: string, data: string) => Promise<void>;
+	isRunning: (sessionId: string) => boolean;
+	stopTerminal: (sessionId: string) => Promise<void>;
 };
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
@@ -47,5 +49,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 		const terminalId = await get().ensureTerminal(sessionId);
 		if (!terminalId) return;
 		await rpc.request.writeTerminal({ terminalId, data });
+	},
+	isRunning(sessionId) {
+		const terminalId = get().terminalIds[sessionId];
+		if (!terminalId) return false;
+		return !(sessionId in get().exits);
+	},
+	async stopTerminal(sessionId) {
+		const terminalId = get().terminalIds[sessionId];
+		if (!terminalId) return;
+		await rpc.request.closeTerminal({ terminalId });
 	},
 }));

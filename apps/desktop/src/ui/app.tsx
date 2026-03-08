@@ -129,6 +129,8 @@ export function App() {
 	const adjustDiffPaneWidth = useLayoutStore((state) => state.adjustDiffPaneWidth);
 	const appendTerminalOutput = useTerminalStore((state) => state.appendOutput);
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
+	const isTerminalRunning = useTerminalStore((state) => state.isRunning);
+	const stopTerminal = useTerminalStore((state) => state.stopTerminal);
 	const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
 	const [promptDialog, setPromptDialog] = useState<{
@@ -442,6 +444,8 @@ export function App() {
 					}
 					onOpenSettings={() => setSettingsOpen(true)}
 				onRunProjectCommand={() => void handleRunProjectCommand()}
+				onStopProjectCommand={() => currentSession && void stopTerminal(currentSession.id)}
+				isProjectCommandRunning={currentSession ? isTerminalRunning(currentSession.id) : false}
 				onOpenProjectSettings={() => setProjectSettingsOpen(true)}
 				/>
 				</div>
