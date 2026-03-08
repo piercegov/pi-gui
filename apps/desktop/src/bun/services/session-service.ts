@@ -297,10 +297,14 @@ export class SessionService {
 			params.baseRef ??
 			project.defaultBaseRef ??
 			(project.isGit ? await this.git.getDefaultBaseRef(project.rootPath) : undefined);
+		const hasWorktreeBaseRef = typeof baseRef === "string" && baseRef.length > 0;
+		const canUseWorktreeBaseRef = hasWorktreeBaseRef
+			? await this.git.isCommitRef(project.rootPath, baseRef)
+			: false;
 		let cwdPath = project.rootPath;
 		let worktreePath: string | undefined;
 		let worktreeBranch: string | undefined;
-		if (mode === "worktree" && project.isGit && baseRef) {
+		if (mode === "worktree" && project.isGit && baseRef && canUseWorktreeBaseRef) {
 			worktreeBranch = this.git.buildSessionBranchName(project.name, sessionId);
 			worktreePath = this.git.getManagedWorktreePath(
 				project.id,
