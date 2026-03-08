@@ -1,43 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
 import type { ProjectSummary } from "@shared/models";
-
-function SettingField(props: {
-	label: string;
-	description: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<div className="border-b border-surface-border py-3 last:border-b-0">
-			<div className="text-xs text-white/80">{props.label}</div>
-			<div className="mt-0.5 text-2xs text-white/35">{props.description}</div>
-			<div className="mt-2">{props.children}</div>
-		</div>
-	);
-}
 
 export function ProjectSettingsDialog(props: {
 	open: boolean;
 	project?: ProjectSummary;
 	onOpenChange: (open: boolean) => void;
-	onUpdate: (projectId: string, settings: { runCommand?: string }) => Promise<void>;
+	onUpdate: (projectId: string, settings: Record<string, unknown>) => Promise<void>;
 }) {
-	const [runCommand, setRunCommand] = useState("");
-
-	useEffect(() => {
-		if (props.open && props.project) {
-			setRunCommand((props.project.metadata.runCommand as string) ?? "");
-		}
-	}, [props.open, props.project]);
-
-	const handleSave = () => {
-		if (!props.project) return;
-		void props.onUpdate(props.project.id, {
-			runCommand: runCommand || undefined,
-		});
-	};
-
 	return (
 		<Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
 			<Dialog.Portal>
@@ -53,21 +23,7 @@ export function ProjectSettingsDialog(props: {
 					</div>
 
 					<div className="px-5 py-4">
-						<SettingField
-							label="Run command"
-							description="Shell command executed when you click the Run button. E.g. bun run dev:hmr, npm start, make serve."
-						>
-							<input
-								value={runCommand}
-								onChange={(e) => setRunCommand(e.target.value)}
-								onBlur={handleSave}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") handleSave();
-								}}
-								placeholder="e.g. bun run dev:hmr"
-								className="w-full border border-surface-border bg-surface-2 px-2.5 py-1.5 text-xs text-white/70 outline-none font-mono"
-							/>
-						</SettingField>
+						<p className="text-2xs text-white/30">No project-level settings available yet.</p>
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>

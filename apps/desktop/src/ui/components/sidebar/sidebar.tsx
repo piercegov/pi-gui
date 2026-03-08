@@ -1,4 +1,4 @@
-import { Plus, FolderOpen, Trash2, ExternalLink, Eye, MoreHorizontal, Archive, Pencil, ArchiveRestore, Play, Square, Settings } from "lucide-react";
+import { Plus, FolderOpen, Trash2, ExternalLink, Eye, MoreHorizontal, Archive, Pencil, ArchiveRestore, Settings } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { ProjectSummary, SessionSummary } from "@shared/models";
 
@@ -35,9 +35,6 @@ export function Sidebar(props: {
 	onRenameSession: (session: SessionSummary) => void;
 	onArchiveSession: (session: SessionSummary, archived: boolean) => void;
 	onOpenSettings: () => void;
-	onRunProjectCommand: () => void;
-	onStopProjectCommand: () => void;
-	isProjectCommandRunning: boolean;
 	onOpenProjectSettings: () => void;
 }) {
 	const selectedProject = props.projects.find((p) => p.id === props.selectedProjectId);
@@ -94,19 +91,6 @@ export function Sidebar(props: {
 
 				{selectedProject ? (
 					<div className="flex items-center gap-0.5">
-						<button
-							onClick={props.isProjectCommandRunning ? props.onStopProjectCommand : props.onRunProjectCommand}
-							className={`rounded-md p-1 transition hover:bg-white/8 ${
-								props.isProjectCommandRunning
-									? "text-state-running hover:text-state-error"
-									: selectedProject.metadata.runCommand
-										? "text-state-running/70 hover:text-state-running"
-										: "text-white/40 hover:text-white/60"
-							}`}
-							title={props.isProjectCommandRunning ? "Stop" : selectedProject.metadata.runCommand ? `Run: ${selectedProject.metadata.runCommand}` : "Run (no command configured)"}
-						>
-							{props.isProjectCommandRunning ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-						</button>
 						<button
 							onClick={() => props.onOpenProjectInEditor(selectedProject.id)}
 							className="rounded-md p-1 text-white/40 transition hover:bg-white/8 hover:text-white/60"

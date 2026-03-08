@@ -18,7 +18,7 @@ type LayoutState = {
 };
 
 export const useLayoutStore = create<LayoutState>((set) => ({
-	terminalOpen: true,
+	terminalOpen: false,
 	settingsOpen: false,
 	reviewPaneOpen: true,
 	sidebarWidth: 240,

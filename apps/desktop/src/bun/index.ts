@@ -194,9 +194,7 @@ const resolveThreadParamsSchema = z.object({
 const updateSettingsSchema = appSettingsSchema.partial();
 const updateProjectSettingsSchema = z.object({
 	projectId: z.string(),
-	settings: z.object({
-		runCommand: z.string().optional(),
-	}),
+	settings: z.object({}),
 });
 const terminalOpenSchema = sessionIdSchema;
 const terminalResizeSchema = z.object({
@@ -250,24 +248,6 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 				return projectSummarySchema.parse(
 					projects.updateProjectMetadata(parsed.projectId, parsed.settings),
 				);
-			},
-			runProjectCommand: async (params: unknown) => {
-				const parsed = sessionIdSchema.parse(params);
-				const summary = await sessions.getSessionSummary(parsed.sessionId);
-				if (!summary) throw new Error("Session not found.");
-				const project = projects.getProject(summary.projectId);
-				if (!project) throw new Error("Project not found.");
-				const runCommand = project.metadata.runCommand as string | undefined;
-				if (!runCommand) throw new Error("No run command configured for this project.");
-				const result = await terminals.open({
-					sessionId: parsed.sessionId,
-					cwd: summary.cwdPath,
-					shell: settings.getAppSettings().terminalShell,
-				});
-				// Small delay to let the shell initialize before writing the command
-				await new Promise((resolve) => setTimeout(resolve, 200));
-				terminals.write(result.terminalId, `${runCommand}\n`);
-				return result;
 			},
 			listSessions: async (params: unknown) =>
 				z

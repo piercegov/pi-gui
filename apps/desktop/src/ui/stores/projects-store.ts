@@ -10,7 +10,7 @@ type ProjectsState = {
 	addProject: (path: string) => Promise<ProjectSummary>;
 	removeProject: (projectId: string) => Promise<void>;
 	selectProject: (projectId: string) => void;
-	updateProjectSettings: (projectId: string, settings: { runCommand?: string }) => Promise<void>;
+	updateProjectSettings: (projectId: string, settings: Record<string, unknown>) => Promise<void>;
 };
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({
