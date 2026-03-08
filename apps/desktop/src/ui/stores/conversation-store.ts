@@ -14,6 +14,7 @@ type ConversationState = {
 	toolActivity: ToolActivityView[];
 	checkpoints: CheckpointSummaryView[];
 	contextUsage?: ContextUsageView;
+	prepareSession: (sessionId: string) => void;
 	hydrate: (hydration: SessionHydration) => void;
 	applyEvent: (event: SessionStreamEvent) => void;
 };
@@ -24,6 +25,15 @@ export const useConversationStore = create<ConversationState>((set) => ({
 	toolActivity: [],
 	checkpoints: [],
 	contextUsage: undefined,
+	prepareSession(sessionId) {
+		set({
+			sessionId,
+			entries: [],
+			toolActivity: [],
+			checkpoints: [],
+			contextUsage: undefined,
+		});
+	},
 	hydrate(hydration) {
 		set({
 			sessionId: hydration.session.id,

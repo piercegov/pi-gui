@@ -13,6 +13,7 @@ type SessionsState = {
 	selectedSessionId?: string;
 	currentHydration?: SessionHydration;
 	loading: boolean;
+	selectSession: (sessionId: string) => void;
 	loadSessions: (projectId: string) => Promise<void>;
 	openSession: (sessionId: string) => Promise<SessionHydration>;
 	loadInspector: (sessionId: string) => Promise<SessionInspectorView>;
@@ -46,6 +47,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	selectedSessionId: undefined,
 	currentHydration: undefined,
 	loading: false,
+	selectSession(sessionId) {
+		set({
+			selectedSessionId: sessionId,
+			currentHydration: undefined,
+		});
+	},
 	async loadSessions(projectId) {
 		set({ loading: true });
 		const sessions = await rpc.request.listSessions({ projectId });
@@ -62,12 +69,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}));
 	},
 	async openSession(sessionId) {
-		const hydration = await rpc.request.openSession({ sessionId });
-		set({
-			selectedSessionId: sessionId,
-			currentHydration: hydration,
-		});
-		return hydration;
+		return await rpc.request.openSession({ sessionId });
 	},
 	async loadInspector(sessionId) {
 		const inspector = await rpc.request.getSessionInspector({ sessionId });

@@ -24,6 +24,7 @@ type ReviewState = {
 	diffStale: boolean;
 	reviewPaneVisible: boolean;
 	_diffRequestId: number;
+	prepareSession: (sessionId: string) => void;
 	hydrate: (hydration: SessionHydration) => void;
 	setReviewPaneVisible: (visible: boolean) => void;
 	setSelectedRevision: (n: number) => void;
@@ -54,6 +55,22 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 	diffStale: false,
 	reviewPaneVisible: true,
 	_diffRequestId: 0,
+	prepareSession(sessionId) {
+		if (typeof window !== "undefined" && diffRefreshTimer !== undefined) {
+			window.clearTimeout(diffRefreshTimer);
+			diffRefreshTimer = undefined;
+		}
+		set((state) => ({
+			sessionId,
+			revisions: [],
+			activeRevisionNumber: undefined,
+			selectedRevisionNumber: undefined,
+			diffMode: "incremental",
+			currentDiff: undefined,
+			diffStale: false,
+			_diffRequestId: state._diffRequestId + 1,
+		}));
+	},
 	hydrate(hydration) {
 		const activeNum = hydration.activeRevisionNumber;
 		set({
@@ -64,6 +81,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 			diffMode: "incremental",
 			currentDiff: hydration.currentDiff,
 			diffStale: false,
+			_diffRequestId: get()._diffRequestId + 1,
 		});
 		if (!hydration.currentDiff && activeNum !== undefined) {
 			void get().buildRevisionDiff(activeNum, "incremental");

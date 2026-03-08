@@ -104,6 +104,7 @@ export function App() {
 	const sessionsByProject = useSessionsStore((state) => state.sessionsByProject);
 	const inspectorsBySession = useSessionsStore((state) => state.inspectorsBySession);
 	const selectedSessionId = useSessionsStore((state) => state.selectedSessionId);
+	const selectSession = useSessionsStore((state) => state.selectSession);
 	const loadSessions = useSessionsStore((state) => state.loadSessions);
 	const openSession = useSessionsStore((state) => state.openSession);
 	const loadInspector = useSessionsStore((state) => state.loadInspector);
@@ -114,10 +115,12 @@ export function App() {
 	const createManualCheckpoint = useSessionsStore((state) => state.createManualCheckpoint);
 	const upsertSummary = useSessionsStore((state) => state.upsertSummary);
 	const currentHydration = useSessionsStore((state) => state.currentHydration);
+	const setHydration = useSessionsStore((state) => state.setHydration);
 	const entries = useConversationStore((state) => state.entries);
 	const toolActivity = useConversationStore((state) => state.toolActivity);
 	const checkpoints = useConversationStore((state) => state.checkpoints);
 	const contextUsage = useConversationStore((state) => state.contextUsage);
+	const prepareConversation = useConversationStore((state) => state.prepareSession);
 	const hydrateConversation = useConversationStore((state) => state.hydrate);
 	const applyEvent = useConversationStore((state) => state.applyEvent);
 	const revisions = useReviewStore((state) => state.revisions);
@@ -126,6 +129,7 @@ export function App() {
 	const diffMode = useReviewStore((state) => state.diffMode);
 	const currentDiff = useReviewStore((state) => state.currentDiff);
 	const diffStale = useReviewStore((state) => state.diffStale);
+	const prepareReview = useReviewStore((state) => state.prepareSession);
 	const hydrateReview = useReviewStore((state) => state.hydrate);
 	const setReviewPaneVisible = useReviewStore((state) => state.setReviewPaneVisible);
 	const setSelectedRevision = useReviewStore((state) => state.setSelectedRevision);
@@ -224,12 +228,37 @@ export function App() {
 		],
 	);
 	const supportsEmbeddedTerminal = currentHydration?.supportsEmbeddedTerminal ?? true;
+	const sessionOpenRequestIdRef = useRef(0);
 
-	const applyHydration = (hydration: SessionHydration) => {
+	const applyHydration = useCallback((hydration: SessionHydration) => {
 		hydrateConversation(hydration);
 		hydrateReview(hydration);
 		hydrateSettings(hydration);
-	};
+		setHydration(hydration);
+	}, [hydrateConversation, hydrateReview, hydrateSettings, setHydration]);
+
+	const openAndHydrateSession = useCallback(
+		async (sessionId: string) => {
+			const requestId = sessionOpenRequestIdRef.current + 1;
+			sessionOpenRequestIdRef.current = requestId;
+			selectSession(sessionId);
+			prepareConversation(sessionId);
+			prepareReview(sessionId);
+			const hydration = await openSession(sessionId);
+			if (sessionOpenRequestIdRef.current !== requestId) return;
+			if (useSessionsStore.getState().selectedSessionId !== sessionId) return;
+			applyHydration(hydration);
+			await loadInspector(sessionId);
+		},
+		[
+			applyHydration,
+			loadInspector,
+			openSession,
+			prepareConversation,
+			prepareReview,
+			selectSession,
+		],
+	);
 
 	useEffect(() => {
 		void loadProjects();
@@ -247,15 +276,12 @@ export function App() {
 				: projectSessions.find((session) => !session.archivedAt)?.id ??
 					projectSessions[0]?.id;
 			if (nextSessionId) {
-				const hydration = await openSession(nextSessionId);
-				applyHydration(hydration);
-				await loadInspector(nextSessionId);
+				await openAndHydrateSession(nextSessionId);
 			}
 		});
 	}, [
-		loadInspector,
 		loadSessions,
-		openSession,
+		openAndHydrateSession,
 		selectedProjectId,
 		settings?.showArchived,
 	]);
@@ -336,10 +362,7 @@ export function App() {
 			modelId: options.modelId,
 		});
 		startTransition(() => {
-			void openSession(session.id).then(async (hydration) => {
-				applyHydration(hydration);
-				await loadInspector(session.id);
-			});
+			void openAndHydrateSession(session.id);
 		});
 	};
 
@@ -360,9 +383,7 @@ export function App() {
 	};
 
 	const handleOpenSession = async (sessionId: string) => {
-		const hydration = await openSession(sessionId);
-		applyHydration(hydration);
-		await loadInspector(sessionId);
+		await openAndHydrateSession(sessionId);
 	};
 
 	const handleRenameSession = (session: SessionSummary) => {
