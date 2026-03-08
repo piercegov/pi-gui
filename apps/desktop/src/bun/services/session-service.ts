@@ -5,6 +5,7 @@ import type {
 	DiffMode,
 	DiffSnapshotView,
 	GitStatusView,
+	ModelCatalogSummary,
 	SessionHydration,
 	SessionInspectorView,
 	SessionSummary,
@@ -144,6 +145,11 @@ export class SessionService {
 		return Promise.all(rows.map((row) => this.toSummary(row)));
 	}
 
+	async getModelCatalog(projectId: string): Promise<ModelCatalogSummary> {
+		const project = this.getProjectOrThrow(projectId);
+		return this.runtime.getModelCatalog(project.rootPath);
+	}
+
 	private async refreshAndPublishSession(sessionId: string) {
 		const summary = await this.getSessionSummary(sessionId);
 		if (!summary) return;
@@ -229,6 +235,15 @@ export class SessionService {
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
 		const project = this.getProjectOrThrow(row.project_id);
+		const metadata = this.parseMetadata(row.metadata_json);
+		const preferredModelProvider =
+			typeof metadata.preferredModelProvider === "string"
+				? metadata.preferredModelProvider
+				: undefined;
+		const preferredModelId =
+			typeof metadata.preferredModelId === "string"
+				? metadata.preferredModelId
+				: undefined;
 		if (row.mode === "worktree" && row.worktree_path && row.worktree_branch) {
 			await this.git.ensureWorktree({
 				repoRoot: project.rootPath,
@@ -244,6 +259,8 @@ export class SessionService {
 			displayName: row.display_name ?? "Untitled session",
 			project,
 			baseRef: row.base_ref ?? undefined,
+			preferredModelProvider,
+			preferredModelId,
 		});
 		return row;
 	}
@@ -253,11 +270,21 @@ export class SessionService {
 		name?: string;
 		mode?: "worktree" | "local";
 		baseRef?: string;
+		modelProvider?: string;
+		modelId?: string;
 	}) {
 		const project = this.getProjectOrThrow(params.projectId);
 		const settings = this.settings.getAppSettings();
 		const sessionId = crypto.randomUUID();
 		const now = Date.now();
+		const preferredModelProvider = params.modelProvider?.trim() || undefined;
+		const preferredModelId = params.modelId?.trim() || undefined;
+		if (
+			(preferredModelProvider && !preferredModelId) ||
+			(!preferredModelProvider && preferredModelId)
+		) {
+			throw new Error("Model provider and model id must both be provided.");
+		}
 		const mode =
 			project.isGit && (params.mode ?? settings.defaultSessionMode) === "worktree"
 				? "worktree"
@@ -290,6 +317,8 @@ export class SessionService {
 			displayName: params.name ?? `${project.name} session`,
 			project,
 			baseRef,
+			preferredModelProvider,
+			preferredModelId,
 		});
 		if (params.name) {
 			session.setSessionName(params.name);
@@ -321,6 +350,8 @@ export class SessionService {
 				modelLabel: session.model
 					? `${session.model.provider}/${session.model.id}`
 					: null,
+				preferredModelProvider: preferredModelProvider ?? null,
+				preferredModelId: preferredModelId ?? null,
 			}),
 		);
 		if (project.isGit) {

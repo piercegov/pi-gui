@@ -22,6 +22,8 @@ type SessionsState = {
 			name?: string;
 			mode?: "worktree" | "local";
 			baseRef?: string;
+			modelProvider?: string;
+			modelId?: string;
 		},
 	) => Promise<SessionSummary>;
 	renameSession: (sessionId: string, name: string) => Promise<void>;

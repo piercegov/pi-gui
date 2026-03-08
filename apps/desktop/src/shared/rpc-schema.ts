@@ -8,6 +8,7 @@ import type {
 	DiffMode,
 	DiffSnapshotView,
 	GitStatusView,
+	ModelCatalogSummary,
 	ProjectSummary,
 	RevisionView,
 	SessionHydration,
@@ -63,8 +64,14 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 					name?: string;
 					mode?: "worktree" | "local";
 					baseRef?: string;
+					modelProvider?: string;
+					modelId?: string;
 				};
 				response: SessionSummary;
+			};
+			getModelCatalog: {
+				params: { projectId: string };
+				response: ModelCatalogSummary;
 			};
 			openSession: {
 				params: { sessionId: string };

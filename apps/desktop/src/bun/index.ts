@@ -15,6 +15,7 @@ import {
 	diffModeSchema,
 	diffSnapshotSchema,
 	gitStatusSchema,
+	modelCatalogSummarySchema,
 	projectSummarySchema,
 	revisionSchema,
 	sessionInspectorSchema,
@@ -146,6 +147,8 @@ const createSessionParamsSchema = z.object({
 	name: z.string().optional(),
 	mode: z.enum(["worktree", "local"]).optional(),
 	baseRef: z.string().optional(),
+	modelProvider: z.string().optional(),
+	modelId: z.string().optional(),
 });
 const renameSessionParamsSchema = z.object({
 	sessionId: z.string(),
@@ -272,6 +275,10 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 			createSession: async (params: unknown) =>
 				sessionSummarySchema.parse(
 					await sessions.createSession(createSessionParamsSchema.parse(params)),
+				),
+			getModelCatalog: async (params: unknown) =>
+				modelCatalogSummarySchema.parse(
+					await sessions.getModelCatalog(projectIdSchema.parse(params).projectId),
 				),
 			openSession: async (params: unknown) =>
 				sessionHydrationSchema.parse(
