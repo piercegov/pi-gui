@@ -1,5 +1,11 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ContextUsageView, SessionHydration, SessionSummary, ToastMessage } from "@shared/models";
+import type {
+	ContextUsageView,
+	ModelCatalogSummary,
+	SessionHydration,
+	SessionSummary,
+	ToastMessage,
+} from "@shared/models";
 import { rpc } from "@ui/lib/rpc-client";
 import { useConversationStore } from "@ui/stores/conversation-store";
 import { useLayoutStore } from "@ui/stores/layout-store";
@@ -14,6 +20,7 @@ import { ConversationPane } from "./components/chat/conversation-pane";
 import { DiffPane } from "./components/diff/diff-pane";
 import { TerminalDrawer } from "./components/terminal/terminal-drawer";
 import { SettingsDialog } from "./components/settings/settings-dialog";
+import { NewSessionDialog } from "./components/shared/new-session-dialog";
 import { PromptDialog } from "./components/shared/prompt-dialog";
 
 function ResizeHandle(props: {
@@ -129,6 +136,11 @@ export function App() {
 		confirmLabel?: string;
 		onConfirm: (value: string) => void;
 	} | null>(null);
+	const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
+	const [modelCatalog, setModelCatalog] = useState<ModelCatalogSummary | undefined>(
+		undefined,
+	);
+	const [modelCatalogLoading, setModelCatalogLoading] = useState(false);
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -253,9 +265,17 @@ export function App() {
 		await addProject(path);
 	};
 
-	const handleCreateSession = async (name?: string) => {
+	const handleCreateSession = async (options: {
+		name?: string;
+		modelProvider?: string;
+		modelId?: string;
+	}) => {
 		if (!selectedProjectId) return;
-		const session = await createSession(selectedProjectId, { name: name || undefined });
+		const session = await createSession(selectedProjectId, {
+			name: options.name || undefined,
+			modelProvider: options.modelProvider,
+			modelId: options.modelId,
+		});
 		startTransition(() => {
 			void openSession(session.id).then(async (hydration) => {
 				applyHydration(hydration);
@@ -264,16 +284,20 @@ export function App() {
 		});
 	};
 
-	const promptCreateSession = () => {
-		setPromptDialog({
-			title: "New session",
-			placeholder: "Session name (optional)",
-			confirmLabel: "Create",
-			onConfirm: (value) => {
-				setPromptDialog(null);
-				void handleCreateSession(value);
-			},
-		});
+	const promptCreateSession = async () => {
+		if (!selectedProjectId) return;
+		setNewSessionDialogOpen(true);
+		setModelCatalogLoading(true);
+		try {
+			const catalog = await rpc.request.getModelCatalog({
+				projectId: selectedProjectId,
+			});
+			setModelCatalog(catalog);
+		} catch {
+			setModelCatalog(undefined);
+		} finally {
+			setModelCatalogLoading(false);
+		}
 	};
 
 	const handleOpenSession = async (sessionId: string) => {
@@ -495,6 +519,17 @@ export function App() {
 				settings={settings}
 				onOpenChange={setSettingsOpen}
 				onUpdate={updateSettings}
+			/>
+
+			<NewSessionDialog
+				open={newSessionDialogOpen}
+				loading={modelCatalogLoading}
+				catalog={modelCatalog}
+				onConfirm={(value) => {
+					setNewSessionDialogOpen(false);
+					void handleCreateSession(value);
+				}}
+				onCancel={() => setNewSessionDialogOpen(false)}
 			/>
 
 			<PromptDialog

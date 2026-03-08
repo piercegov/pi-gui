@@ -258,6 +258,20 @@ export const piConfigSummarySchema = z.object({
 	settingsPath: z.string().optional(),
 });
 
+export const modelCatalogModelSchema = z.object({
+	provider: z.string(),
+	id: z.string(),
+	name: z.string(),
+	isAvailable: z.boolean(),
+});
+
+export const modelCatalogSummarySchema = z.object({
+	activeProvider: z.string().optional(),
+	activeModelId: z.string().optional(),
+	providers: z.array(z.string()),
+	models: z.array(modelCatalogModelSchema),
+});
+
 export const appSettingsSchema = z.object({
 	defaultDiffView: z.enum(["split", "unified"]),
 	defaultSessionMode: z.enum(["worktree", "local"]),

@@ -1,5 +1,7 @@
 import {
+	AuthStorage,
 	DefaultResourceLoader,
+	ModelRegistry,
 	SessionManager,
 	SettingsManager,
 	createAgentSession,
@@ -10,11 +12,12 @@ import {
 import type {
 	ConversationEntryView,
 	ContextUsageView,
+	ModelCatalogSummary,
 	PiConfigSummary,
+	ProjectSummary,
 	SessionTreeNodeView,
 	SessionStreamEvent,
 	ToolActivityView,
-	ProjectSummary,
 } from "../../shared/models";
 import { createPiReviewExtension } from "../../../../../packages/pi-review-extension/src/index";
 import {
@@ -34,6 +37,8 @@ type RuntimeSessionRecord = {
 	displayName: string;
 	project: ProjectSummary;
 	baseRef?: string;
+	preferredModelProvider?: string;
+	preferredModelId?: string;
 };
 
 type RuntimeHooks = {
@@ -219,6 +224,76 @@ export class PiRuntimeManager {
 			} satisfies PiConfigSummary;
 		}
 		return this.mapPiConfig(runtime);
+	}
+
+	private applyEnvironmentOverrides() {
+		const { environmentOverrides } = this.appSettings.getAppSettings();
+		for (const [key, value] of Object.entries(environmentOverrides)) {
+			if (key && value) {
+				process.env[key] = value;
+			}
+		}
+	}
+
+	private applySessionModelOverrides(
+		settingsManager: SettingsManager,
+		record: Pick<RuntimeSessionRecord, "preferredModelProvider" | "preferredModelId">,
+	) {
+		if (!record.preferredModelProvider || !record.preferredModelId) return;
+		settingsManager.applyOverrides({
+			defaultProvider: record.preferredModelProvider,
+			defaultModel: record.preferredModelId,
+		});
+	}
+
+	getModelCatalog(cwdPath: string): ModelCatalogSummary {
+		this.applyEnvironmentOverrides();
+		const settingsManager = SettingsManager.create(cwdPath);
+		const authStorage = AuthStorage.create();
+		const modelRegistry = new ModelRegistry(authStorage);
+		const models = modelRegistry
+			.getAll()
+			.slice()
+			.sort((a, b) => {
+				if (a.provider !== b.provider) {
+					return a.provider.localeCompare(b.provider);
+				}
+				return a.id.localeCompare(b.id);
+			});
+		const availableSet = new Set(
+			modelRegistry
+				.getAvailable()
+				.map((model) => `${model.provider}/${model.id}`),
+		);
+		const providers = Array.from(new Set(models.map((model) => model.provider))).sort(
+			(a, b) => a.localeCompare(b),
+		);
+		const configuredProvider = settingsManager.getDefaultProvider();
+		const activeProvider =
+			configuredProvider && providers.includes(configuredProvider)
+				? configuredProvider
+				: providers[0];
+		const configuredModelId = settingsManager.getDefaultModel();
+		const activeModelId =
+			activeProvider && configuredModelId
+				? models.some(
+						(model) =>
+							model.provider === activeProvider && model.id === configuredModelId,
+					)
+					? configuredModelId
+					: models.find((model) => model.provider === activeProvider)?.id
+				: models.find((model) => model.provider === activeProvider)?.id;
+		return {
+			activeProvider,
+			activeModelId,
+			providers,
+			models: models.map((model) => ({
+				provider: model.provider,
+				id: model.id,
+				name: model.name,
+				isAvailable: availableSet.has(`${model.provider}/${model.id}`),
+			})),
+		};
 	}
 
 	getToolActivity(sessionId: string) {
@@ -565,6 +640,7 @@ export class PiRuntimeManager {
 			);
 		});
 		const settingsManager = SettingsManager.create(record.cwdPath);
+		this.applySessionModelOverrides(settingsManager, record);
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: record.cwdPath,
 			settingsManager,
@@ -583,12 +659,7 @@ export class PiRuntimeManager {
 		await resourceLoader.reload();
 
 		// Apply user-configured environment overrides (e.g. AWS_PROFILE, API keys)
-		const { environmentOverrides } = this.appSettings.getAppSettings();
-		for (const [key, value] of Object.entries(environmentOverrides)) {
-			if (key && value) {
-				process.env[key] = value;
-			}
-		}
+		this.applyEnvironmentOverrides();
 
 		const sessionManager = record.piSessionFile
 			? SessionManager.open(record.piSessionFile, appPaths.sessionStoreDir)

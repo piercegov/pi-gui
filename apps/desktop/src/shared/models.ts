@@ -244,6 +244,20 @@ export interface PiConfigSummary {
 	settingsPath?: string;
 }
 
+export interface ModelCatalogModel {
+	provider: string;
+	id: string;
+	name: string;
+	isAvailable: boolean;
+}
+
+export interface ModelCatalogSummary {
+	activeProvider?: string;
+	activeModelId?: string;
+	providers: string[];
+	models: ModelCatalogModel[];
+}
+
 export interface AppSettings {
 	defaultDiffView: DiffViewMode;
 	defaultSessionMode: SessionMode;
