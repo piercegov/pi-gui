@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChangeKey, Diff, Hunk, parseDiff, tokenize, markEdits } from "react-diff-view";
 import type { HunkTokens } from "react-diff-view";
 import { refractor } from "refractor";
@@ -15,10 +15,7 @@ import type {
 	SessionSummary,
 	ThreadResolution,
 } from "@shared/models";
-import {
-	createAnchorFromChange,
-	threadMatchesChange,
-} from "@ui/lib/diff-utils";
+import { createAnchorFromChange } from "@ui/lib/diff-utils";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 import { SessionInspector } from "./session-inspector";
 
@@ -221,6 +218,10 @@ function lineValue(change: { type: string } & Record<string, unknown>, side: "ol
 	return -1;
 }
 
+function threadLookupKey(filePath: string, side: "old" | "new", line: number) {
+	return `${filePath}\u0000${side}\u0000${line}`;
+}
+
 function fileStats(file: { hunks: Array<{ changes: Array<{ type: string }> }> }) {
 	let additions = 0;
 	let deletions = 0;
@@ -233,7 +234,15 @@ function fileStats(file: { hunks: Array<{ changes: Array<{ type: string }> }> })
 	return { additions, deletions };
 }
 
-export function DiffPane(props: {
+function fileChangeCount(file: { hunks: Array<{ changes: unknown[] }> }) {
+	let count = 0;
+	for (const hunk of file.hunks) {
+		count += hunk.changes.length;
+	}
+	return count;
+}
+
+type DiffPaneProps = {
 	session?: SessionSummary;
 	inspector?: SessionInspectorView;
 	diff?: DiffSnapshotView;
@@ -256,7 +265,9 @@ export function DiffPane(props: {
 	onApplyAndMerge: (commitMessage?: string) => Promise<void>;
 	onCreateManualCheckpoint: () => Promise<void>;
 	onRepairWorktree: () => Promise<void>;
-}) {
+};
+
+function DiffPaneComponent(props: DiffPaneProps) {
 	const [viewType, setViewType] = useState<DiffViewMode>(props.defaultView);
 	const [search, setSearch] = useState("");
 	const [draftAnchor, setDraftAnchor] = useState<CommentAnchor | null>(null);
@@ -303,12 +314,97 @@ export function DiffPane(props: {
 		);
 	}, [parsedFiles, search]);
 
+	const filteredFileIndexByPath = useMemo(() => {
+		const map = new Map<string, number>();
+		for (let index = 0; index < filteredFiles.length; index += 1) {
+			const file = filteredFiles[index];
+			map.set(file.newPath || file.oldPath, index);
+		}
+		return map;
+	}, [filteredFiles]);
+
+	const threadIndex = useMemo(() => {
+		const index = new Map<string, CommentThreadView[]>();
+		for (const thread of visibleThreads) {
+			const key = threadLookupKey(
+				thread.filePath,
+				thread.anchor.side,
+				thread.anchor.line,
+			);
+			const existing = index.get(key);
+			if (existing) existing.push(thread);
+			else index.set(key, [thread]);
+		}
+		return index;
+	}, [visibleThreads]);
+
+	const threadCountByFilePath = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const thread of visibleThreads) {
+			map.set(thread.filePath, (map.get(thread.filePath) ?? 0) + 1);
+		}
+		return map;
+	}, [visibleThreads]);
+
+	const fileStatsByPath = useMemo(() => {
+		const map = new Map<string, { additions: number; deletions: number }>();
+		for (const file of filteredFiles) {
+			const path = file.newPath || file.oldPath;
+			map.set(path, fileStats(file));
+		}
+		return map;
+	}, [filteredFiles]);
+
+	const fileChangeCountByPath = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const file of filteredFiles) {
+			const path = file.newPath || file.oldPath;
+			map.set(path, fileChangeCount(file));
+		}
+		return map;
+	}, [filteredFiles]);
+
+	const tokenCacheRef = useRef<Map<string, HunkTokens | undefined>>(new Map());
+	useEffect(() => {
+		tokenCacheRef.current.clear();
+	}, [props.diff?.id, props.diff?.patch]);
+
+	const getTokensForFile = useCallback(
+		(path: string, hunks: Parameters<typeof tokenize>[0]) => {
+			const cache = tokenCacheRef.current;
+			if (cache.has(path)) return cache.get(path);
+			const tokens = tokenizeHunks(hunks, langFromPath(path));
+			cache.set(path, tokens);
+			return tokens;
+		},
+		[],
+	);
+
 	const fileListParentRef = useRef<HTMLDivElement | null>(null);
 	const rowVirtualizer = useVirtualizer({
 		count: filteredFiles.length,
 		getScrollElement: () => fileListParentRef.current,
 		estimateSize: () => 44,
 		gap: 1,
+	});
+
+	const estimateDiffItemSize = useCallback((index: number) => {
+		const file = filteredFiles[index];
+		if (!file) return 120;
+		const path = file.newPath || file.oldPath;
+		if (collapsedFiles.has(path)) return 42;
+		const changeCount = fileChangeCountByPath.get(path) ?? 0;
+		const threadCount = threadCountByFilePath.get(path) ?? 0;
+		const lineHeight = viewType === "split" ? 19 : 17;
+		return Math.max(140, 56 + changeCount * lineHeight + threadCount * 120);
+	}, [collapsedFiles, fileChangeCountByPath, filteredFiles, threadCountByFilePath, viewType]);
+
+	const diffVirtualizer = useVirtualizer({
+		count: filteredFiles.length,
+		getScrollElement: () => diffContentRef.current,
+		estimateSize: estimateDiffItemSize,
+		overscan: 2,
+		gap: 16,
 	});
 
 	const revisionState = selectedRevision?.state;
@@ -334,10 +430,10 @@ export function DiffPane(props: {
 	}, [selectionPopup]);
 
 	const scrollToFile = useCallback((filePath: string) => {
-		if (!diffContentRef.current) return;
-		const el = diffContentRef.current.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
-		if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-	}, []);
+		const index = filteredFileIndexByPath.get(filePath);
+		if (index === undefined) return;
+		diffVirtualizer.scrollToIndex(index, { align: "start" });
+	}, [diffVirtualizer, filteredFileIndexByPath]);
 
 	const handleDiffMouseUp = useCallback(
 		(_e: React.MouseEvent) => {
@@ -696,7 +792,7 @@ export function DiffPane(props: {
 								{rowVirtualizer.getVirtualItems().map((item) => {
 									const file = filteredFiles[item.index];
 									const path = file.newPath || file.oldPath;
-									const stats = fileStats(file);
+									const stats = fileStatsByPath.get(path) ?? { additions: 0, deletions: 0 };
 									return (
 										<button
 											key={item.key}
@@ -722,136 +818,152 @@ export function DiffPane(props: {
 
 				{/* Diff content */}
 				<div ref={diffContentRef} className="diff-shell overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
-					<div className="space-y-4">
-						{filteredFiles.map((file) => {
+					<div style={{ height: `${diffVirtualizer.getTotalSize()}px`, position: "relative" }}>
+						{diffVirtualizer.getVirtualItems().map((item) => {
+							const file = filteredFiles[item.index];
+							if (!file) return null;
 							const path = file.newPath || file.oldPath;
-							const lang = langFromPath(path);
-							const tokens = tokenizeHunks(file.hunks, lang);
 							const isCollapsed = collapsedFiles.has(path);
-							const stats = fileStats(file);
+							const tokens = isCollapsed ? undefined : getTokensForFile(path, file.hunks);
+							const stats = fileStatsByPath.get(path) ?? { additions: 0, deletions: 0 };
 							return (
-								<div key={`${file.oldRevision}-${file.newRevision}`} data-file-path={path}>
-									<button
-										type="button"
-										onClick={() =>
-											setCollapsedFiles((prev) => {
-												const next = new Set(prev);
-												if (next.has(path)) next.delete(path);
-												else next.add(path);
-												return next;
-											})
-										}
-										className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
-									>
-										<ChevronRight
-											className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-										/>
-										<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
-										<span className="text-2xs text-state-applied">+{stats.additions}</span>
-										<span className="text-2xs text-state-error">-{stats.deletions}</span>
-										<span className="text-2xs uppercase tracking-wider text-white/25">
-											{file.type}
-										</span>
-									</button>
-									{isCollapsed ? null : <Diff
-										viewType={viewType}
-										diffType={file.type}
-										hunks={file.hunks}
-										tokens={tokens}
-										gutterType="default"
-										gutterEvents={{
-											onClick: ({ change }) => {
-												if (!change || !props.diff) return;
-												const hunk = file.hunks.find((candidate) =>
-													candidate.changes.includes(change),
-												);
-												if (!hunk) return;
-												setDraftAnchor(
-													createAnchorFromChange({
-														file,
-														hunk,
-														change,
-														diff: props.diff,
-													}),
-												);
-											},
-										}}
-										widgets={Object.fromEntries(
-											file.hunks
-												.flatMap((hunk) =>
-												hunk.changes.map((change) => {
-													const threads = visibleThreads.filter(
-														(thread) =>
-															thread.filePath === path &&
-															threadMatchesChange(thread, change),
+								<div
+									key={item.key}
+									ref={diffVirtualizer.measureElement}
+									data-index={item.index}
+									className="absolute left-0 right-0"
+									style={{ transform: `translateY(${item.start}px)` }}
+								>
+									<div data-file-path={path}>
+										<button
+											type="button"
+											onClick={() =>
+												setCollapsedFiles((prev) => {
+													const next = new Set(prev);
+													if (next.has(path)) next.delete(path);
+													else next.add(path);
+													return next;
+												})
+											}
+											className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
+										>
+											<ChevronRight
+												className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+											/>
+											<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
+											<span className="text-2xs text-state-applied">+{stats.additions}</span>
+											<span className="text-2xs text-state-error">-{stats.deletions}</span>
+											<span className="text-2xs uppercase tracking-wider text-white/25">
+												{file.type}
+											</span>
+										</button>
+										{isCollapsed ? null : <Diff
+											viewType={viewType}
+											diffType={file.type}
+											hunks={file.hunks}
+											tokens={tokens}
+											gutterType="default"
+											gutterEvents={{
+												onClick: ({ change }) => {
+													if (!change || !props.diff) return;
+													const hunk = file.hunks.find((candidate) =>
+														candidate.changes.includes(change),
 													);
-													const key = getChangeKey(change);
+													if (!hunk) return;
+													setDraftAnchor(
+														createAnchorFromChange({
+															file,
+															hunk,
+															change,
+															diff: props.diff,
+														}),
+													);
+												},
+											}}
+											widgets={Object.fromEntries(
+												file.hunks
+													.flatMap((hunk) =>
+													hunk.changes.map((change) => {
+														const oldLine = lineValue(change as never, "old");
+														const newLine = lineValue(change as never, "new");
+														const oldThreads =
+															oldLine >= 0
+																? threadIndex.get(threadLookupKey(path, "old", oldLine))
+																: undefined;
+														const newThreads =
+															newLine >= 0
+																? threadIndex.get(threadLookupKey(path, "new", newLine))
+																: undefined;
+														const threads =
+															oldThreads && newThreads
+																? [...oldThreads, ...newThreads]
+																: oldThreads ?? newThreads ?? [];
+														const key = getChangeKey(change);
 														const isDraft =
 															draftAnchor &&
 															draftAnchor.filePath === path &&
-															((draftAnchor.side === "old" &&
-																draftAnchor.line === lineValue(change as never, "old")) ||
-																(draftAnchor.side === "new" &&
-																	draftAnchor.line === lineValue(change as never, "new")));
-													if (threads.length === 0 && !isDraft) return [key, null];
-													return [
-														key,
-														<div className="py-1.5">
-															{threads.length > 0 ? (
-																<InlineThread
-																	threads={threads}
-																	onReply={props.onReplyToThread}
-																	onResolve={props.onResolveThread}
-																	onReopen={props.onReopenThread}
-																/>
-															) : null}
-															{isDraft ? (
-																<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
-																	<textarea
-																		value={draftBody}
-																		onChange={(event) =>
-																			setDraftBody(event.target.value)
-																		}
-																		rows={3}
-																		placeholder="Leave a review comment..."
-																		className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+															((draftAnchor.side === "old" && draftAnchor.line === oldLine) ||
+																(draftAnchor.side === "new" && draftAnchor.line === newLine));
+														if (threads.length === 0 && !isDraft) return [key, null];
+														return [
+															key,
+															<div className="py-1.5">
+																{threads.length > 0 ? (
+																	<InlineThread
+																		threads={threads}
+																		onReply={props.onReplyToThread}
+																		onResolve={props.onResolveThread}
+																		onReopen={props.onReopenThread}
 																	/>
-																	<div className="mt-2 flex justify-end gap-1.5">
-																		<button
-																			onClick={() => {
-																				setDraftAnchor(null);
-																				setDraftBody("");
-																			}}
-																			className="px-2.5 py-1 text-xs text-white/40 hover:bg-white/5 hover:text-white/60"
-																		>
-																			Cancel
-																		</button>
-																		<button
-																			onClick={async () => {
-																				if (!draftAnchor || !draftBody.trim()) return;
-																				await props.onCreateThread(
-																					draftAnchor,
-																					draftBody,
-																				);
-																				setDraftBody("");
-																				setDraftAnchor(null);
-																			}}
-																			className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
-																		>
-																			Comment
-																		</button>
+																) : null}
+																{isDraft ? (
+																	<div className="border-l-2 border-accent/30 bg-surface-2 p-3">
+																		<textarea
+																			value={draftBody}
+																			onChange={(event) =>
+																				setDraftBody(event.target.value)
+																			}
+																			rows={3}
+																			placeholder="Leave a review comment..."
+																			className="w-full resize-none border border-surface-border bg-surface-1 px-3 py-1.5 text-xs text-white/80 placeholder:text-white/20 outline-none focus:border-accent/30"
+																		/>
+																		<div className="mt-2 flex justify-end gap-1.5">
+																			<button
+																				onClick={() => {
+																					setDraftAnchor(null);
+																					setDraftBody("");
+																				}}
+																				className="px-2.5 py-1 text-xs text-white/40 hover:bg-white/5 hover:text-white/60"
+																			>
+																				Cancel
+																			</button>
+																			<button
+																				onClick={async () => {
+																					if (!draftAnchor || !draftBody.trim()) return;
+																					await props.onCreateThread(
+																						draftAnchor,
+																						draftBody,
+																					);
+																					setDraftBody("");
+																					setDraftAnchor(null);
+																				}}
+																				className="bg-accent px-2.5 py-1 text-xs font-medium text-black"
+																			>
+																				Comment
+																			</button>
+																		</div>
 																	</div>
-																</div>
-															) : null}
-														</div>,
-													];
+																) : null}
+															</div>,
+														];
 													}),
 												)
 												.filter((entry) => entry[1] !== null),
 										)}
-									>
-										{(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-									</Diff>}
+										>
+											{(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
+										</Diff>}
+									</div>
 								</div>
 							);
 						})}
@@ -878,3 +990,19 @@ export function DiffPane(props: {
 		</section>
 	);
 }
+
+function areDiffPanePropsEqual(prev: DiffPaneProps, next: DiffPaneProps) {
+	return (
+		prev.session === next.session &&
+		prev.inspector === next.inspector &&
+		prev.diff === next.diff &&
+		prev.revisions === next.revisions &&
+		prev.activeRevisionNumber === next.activeRevisionNumber &&
+		prev.selectedRevisionNumber === next.selectedRevisionNumber &&
+		prev.diffMode === next.diffMode &&
+		prev.defaultView === next.defaultView &&
+		prev.diffStale === next.diffStale
+	);
+}
+
+export const DiffPane = memo(DiffPaneComponent, areDiffPanePropsEqual);
