@@ -184,6 +184,7 @@ export interface RevisionView {
 
 export interface DiffSnapshotView {
 	id: string;
+	cacheKey: string;
 	sessionId: string;
 	scope: DiffScope;
 	title: string;
