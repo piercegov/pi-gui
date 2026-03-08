@@ -54,6 +54,7 @@
     "autoprefixer": "^10.4.27",
     "concurrently": "^9.2.1",
     "postcss": "^8.5.8",
+    "react-scan": "^0.5.3",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
     "vite": "^6.4.1"
