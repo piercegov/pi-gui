@@ -23,6 +23,7 @@ import { SettingsDialog } from "./components/settings/settings-dialog";
 import { ProjectSettingsDialog } from "./components/settings/project-settings-dialog";
 import { NewSessionDialog } from "./components/shared/new-session-dialog";
 import { PromptDialog } from "./components/shared/prompt-dialog";
+import { PerfOverlay } from "./components/shell/perf-overlay";
 
 function ResizeHandle(props: {
 	onDrag: (delta: number) => void;
@@ -635,6 +636,8 @@ export function App() {
 					<span>{currentSession?.modelLabel ?? ""}</span>
 				</div>
 			</div>
+
+			<PerfOverlay />
 
 			{/* Toasts */}
 			<div className="pointer-events-none fixed right-3 top-14 z-50 flex w-72 flex-col gap-1.5">
