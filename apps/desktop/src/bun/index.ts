@@ -122,6 +122,7 @@ const sessions = new SessionService(
 );
 const terminals = new TerminalService(messenger);
 
+sessions.resetStaleStatuses();
 sessions.configureRuntimeHooks();
 review.setRuntimeBridge(runtime);
 review.setSessionRefresh(async (sessionId) => {

@@ -156,6 +156,12 @@ export class SessionService {
 		this.messenger.sessionSummaryUpdated(summary);
 	}
 
+	resetStaleStatuses() {
+		this.db.run(
+			`UPDATE sessions SET status = 'idle' WHERE status IN ('running', 'starting', 'applying')`,
+		);
+	}
+
 	async updateRuntimeStatus(
 		sessionId: string,
 		patch: {
