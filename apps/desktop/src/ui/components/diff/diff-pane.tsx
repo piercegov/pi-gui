@@ -4,6 +4,7 @@ import {
 	getChangeKey,
 	Hunk,
 	parseDiff,
+	tokenize,
 } from "react-diff-view";
 import type { ChangeData, FileData, HunkData, HunkTokens } from "react-diff-view";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -27,6 +28,7 @@ import {
 	splitFileHunks,
 } from "@ui/lib/diff-chunks";
 import { detectDiffLanguage } from "@ui/lib/diff-language";
+import { refractorCompat } from "@ui/lib/refractor-compat";
 import { createAnchorFromChange } from "@ui/lib/diff-utils";
 import { measureDiffPerf, recordDiffPerf } from "@ui/lib/diff-perf";
 import { MarkdownRenderer } from "@ui/lib/markdown";
@@ -188,13 +190,30 @@ function buildParsedDiffModel(diff?: DiffSnapshotView): ParsedDiffModel {
 	});
 }
 
+let diffTokenWorkerFailed = false;
+
+function tokenizeOnMainThread(language: string, hunks: HunkData[]): HunkTokens | undefined {
+	if (!language || !refractorCompat.registered(language)) return undefined;
+	try {
+		return tokenize(hunks, { highlight: true, refractor: refractorCompat, language });
+	} catch {
+		return undefined;
+	}
+}
+
 function getDiffTokenWorker() {
-	if (typeof window === "undefined") return null;
+	if (typeof window === "undefined" || diffTokenWorkerFailed) return null;
 	if (diffTokenWorker) return diffTokenWorker;
-	diffTokenWorker = new Worker(
-		new URL("../../workers/diff-tokenize-worker.ts", import.meta.url),
-		{ type: "module" },
-	);
+	try {
+		diffTokenWorker = new Worker(
+			new URL("../../workers/diff-tokenize-worker.ts", import.meta.url),
+			{ type: "module" },
+		);
+	} catch {
+		console.warn("[diff] Web Worker creation failed, falling back to main-thread tokenization");
+		diffTokenWorkerFailed = true;
+		return null;
+	}
 	diffTokenWorker.addEventListener(
 		"message",
 		(event: MessageEvent<TokenizeWorkerSuccess | TokenizeWorkerFailure>) => {
@@ -223,6 +242,17 @@ function getDiffTokenWorker() {
 			resolver.resolve(event.data.tokens ?? undefined);
 		},
 	);
+	diffTokenWorker.addEventListener("error", (event) => {
+		console.warn("[diff] Web Worker error, falling back to main-thread tokenization", event.message);
+		diffTokenWorkerFailed = true;
+		diffTokenWorker = null;
+		// Reject all pending jobs so they can retry on main thread
+		for (const [jobId, resolver] of diffTokenJobResolvers) {
+			diffTokenJobResolvers.delete(jobId);
+			diffTokenInflight.delete(resolver.key);
+			resolver.reject(new Error("Worker failed"));
+		}
+	});
 	return diffTokenWorker;
 }
 
@@ -269,7 +299,21 @@ function requestFileTokens(params: {
 	});
 
 	const worker = getDiffTokenWorker();
-	if (!worker) return Promise.resolve(undefined);
+	if (!worker) {
+		// Main-thread fallback
+		const start = performance.now();
+		const tokens = tokenizeOnMainThread(params.language, params.hunks);
+		diffTokenCache.set(cacheKey, tokens ?? null);
+		recordDiffPerf({
+			kind: "tokenize_worker",
+			diffId: params.diffId,
+			filePath: params.filePath,
+			durationMs: performance.now() - start,
+			timestamp: Date.now(),
+			metadata: { cacheHit: false, hasTokens: Boolean(tokens), mainThread: true },
+		});
+		return Promise.resolve(tokens);
+	}
 
 	const promise = new Promise<HunkTokens | undefined>((resolve, reject) => {
 		const jobId = ++diffTokenJobId;
@@ -286,7 +330,12 @@ function requestFileTokens(params: {
 			language: params.language,
 			hunks: params.hunks,
 		});
-	}).catch(() => undefined);
+	}).catch(() => {
+		// Worker failed for this job — retry on main thread
+		const tokens = tokenizeOnMainThread(params.language!, params.hunks);
+		diffTokenCache.set(cacheKey, tokens ?? null);
+		return tokens;
+	});
 
 	diffTokenInflight.set(cacheKey, promise);
 	return promise;
