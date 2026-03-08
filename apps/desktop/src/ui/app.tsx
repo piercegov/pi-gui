@@ -129,6 +129,7 @@ export function App() {
 	const diffStale = useReviewStore((state) => state.diffStale);
 	const hydrateReview = useReviewStore((state) => state.hydrate);
 	const clearReview = useReviewStore((state) => state.clear);
+	const setReviewPaneVisible = useReviewStore((state) => state.setReviewPaneVisible);
 	const setSelectedRevision = useReviewStore((state) => state.setSelectedRevision);
 	const setDiffMode = useReviewStore((state) => state.setDiffMode);
 	const createThread = useReviewStore((state) => state.createThread);
@@ -293,6 +294,10 @@ export function App() {
 		if (inspectorsBySession[currentSession.id]) return;
 		void loadInspector(currentSession.id);
 	}, [currentSession?.id, inspectorsBySession, loadInspector]);
+
+	useEffect(() => {
+		setReviewPaneVisible(reviewPaneOpen);
+	}, [reviewPaneOpen, setReviewPaneVisible]);
 
 	useEffect(() => {
 		const onSessionSummaryUpdated = (summary: SessionSummary) => {
