@@ -8,6 +8,7 @@ import type {
 	SessionHydration,
 	ThreadResolution,
 } from "@shared/models";
+import { recordDiffPerf } from "@ui/lib/diff-perf";
 import { rpc } from "@ui/lib/rpc-client";
 
 const DIFF_REFRESH_DEBOUNCE_MS = 180;
@@ -128,8 +129,21 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		const requestId = get()._diffRequestId + 1;
 		set({ _diffRequestId: requestId });
 		try {
+			const requestedAt = performance.now();
 			const diff = await rpc.request.buildRevisionDiff({ sessionId, revisionNumber, mode });
 			if (get()._diffRequestId !== requestId) return; // superseded
+			recordDiffPerf({
+				kind: "diff_request",
+				diffId: diff.id,
+				durationMs: performance.now() - requestedAt,
+				timestamp: Date.now(),
+				metadata: {
+					scope: "revision",
+					revisionNumber,
+					mode,
+					cacheKey: diff.cacheKey,
+				},
+			});
 			set({
 				currentDiff: diff,
 				diffStale: false,
@@ -143,8 +157,19 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 		const requestId = get()._diffRequestId + 1;
 		set({ _diffRequestId: requestId });
 		try {
+			const requestedAt = performance.now();
 			const diff = await rpc.request.buildSessionDiff({ sessionId });
 			if (get()._diffRequestId !== requestId) return; // superseded
+			recordDiffPerf({
+				kind: "diff_request",
+				diffId: diff?.id,
+				durationMs: performance.now() - requestedAt,
+				timestamp: Date.now(),
+				metadata: {
+					scope: "session_changes",
+					cacheKey: diff?.cacheKey ?? "empty",
+				},
+			});
 			set({
 				currentDiff: diff ?? undefined,
 				diffStale: false,

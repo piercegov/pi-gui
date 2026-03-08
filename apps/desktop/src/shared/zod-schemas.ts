@@ -198,6 +198,7 @@ export const diffScopeSchema = z.enum([
 
 export const diffSnapshotSchema = z.object({
 	id: z.string(),
+	cacheKey: z.string(),
 	sessionId: z.string(),
 	scope: diffScopeSchema,
 	title: z.string(),

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DiffScope, DiffSnapshotView, DiffStats } from "../../shared/models";
@@ -56,10 +57,31 @@ export interface CheckpointRecord {
 }
 
 export class CheckpointService {
+	private transientDiffCache = new Map<string, DiffSnapshotView>();
+
 	constructor(
 		private readonly db: AppDb,
 		private readonly git: GitService,
 	) {}
+
+	private rememberTransientDiff(snapshot: DiffSnapshotView) {
+		if (this.transientDiffCache.has(snapshot.cacheKey)) {
+			this.transientDiffCache.delete(snapshot.cacheKey);
+		}
+		this.transientDiffCache.set(snapshot.cacheKey, snapshot);
+		while (this.transientDiffCache.size > 64) {
+			const oldestKey = this.transientDiffCache.keys().next().value;
+			if (!oldestKey) break;
+			this.transientDiffCache.delete(oldestKey);
+		}
+		return snapshot;
+	}
+
+	private buildDiffCacheKey(parts: Array<string | number | undefined>) {
+		return `live:${createHash("sha1")
+			.update(parts.map((part) => String(part ?? "")).join("\u0001"))
+			.digest("hex")}`;
+	}
 
 	private toCheckpoint(record: CheckpointRow): CheckpointRecord {
 		return {
@@ -201,6 +223,7 @@ export class CheckpointService {
 		);
 		return {
 			id,
+			cacheKey: id,
 			sessionId: params.sessionId,
 			scope: params.scope,
 			title: params.title,
@@ -214,6 +237,46 @@ export class CheckpointService {
 			files: params.stats.fileStats,
 			createdAt,
 		} satisfies DiffSnapshotView;
+	}
+
+	buildTransientDiffSnapshot(params: {
+		sessionId: string;
+		scope: DiffScope;
+		title: string;
+		description: string;
+		fromLabel: string;
+		toLabel: string;
+		patch: string;
+		stats: DiffStats;
+		cacheParts: Array<string | number | undefined>;
+		fromCheckpointId?: string;
+		toCheckpointId?: string;
+		revisionNumber?: number;
+		diffMode?: DiffSnapshotView["diffMode"];
+	}) {
+		const cacheKey = this.buildDiffCacheKey(params.cacheParts);
+		const cached = this.transientDiffCache.get(cacheKey);
+		if (cached) {
+			return this.rememberTransientDiff(cached);
+		}
+		return this.rememberTransientDiff({
+			id: cacheKey,
+			cacheKey,
+			sessionId: params.sessionId,
+			scope: params.scope,
+			title: params.title,
+			description: params.description,
+			fromLabel: params.fromLabel,
+			toLabel: params.toLabel,
+			fromCheckpointId: params.fromCheckpointId,
+			toCheckpointId: params.toCheckpointId,
+			patch: params.patch,
+			stats: params.stats,
+			files: params.stats.fileStats,
+			createdAt: Date.now(),
+			revisionNumber: params.revisionNumber,
+			diffMode: params.diffMode,
+		} satisfies DiffSnapshotView);
 	}
 
 	getDiffSnapshot(id: string): DiffSnapshotView | null {
@@ -231,6 +294,7 @@ export class CheckpointService {
 		};
 		return {
 			id: row.id,
+			cacheKey: row.id,
 			sessionId: row.session_id,
 			scope: row.scope,
 			title: payload.title,

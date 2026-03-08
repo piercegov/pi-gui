@@ -1,6 +1,8 @@
 export type DiffPerfKind =
 	| "parse_diff"
 	| "tokenize_file"
+	| "diff_request"
+	| "tokenize_worker"
 	| "build_widgets"
 	| "diff_render_mode"
 	| "diff_render";

@@ -451,7 +451,7 @@ export class SessionService {
 		if (!baseline?.gitTree) return undefined;
 		const diff = await this.git.diffAgainstWorkingTree(row.cwd_path, baseline.gitTree);
 		if (!diff.patch.trim()) return undefined;
-		return this.checkpoints.storeDiffSnapshot({
+		return this.checkpoints.buildTransientDiffSnapshot({
 			sessionId,
 			scope: "session_changes",
 			title: "Session changes",
@@ -460,8 +460,14 @@ export class SessionService {
 			toLabel: "Working tree",
 			patch: diff.patch,
 			stats: diff.stats,
+			cacheParts: [
+				"session_changes",
+				sessionId,
+				baseline.gitTree,
+				diff.toTree,
+				"working_tree",
+			],
 			fromCheckpointId: baseline.id,
-			toRef: diff.toTree,
 		});
 	}
 

@@ -1,11 +1,17 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { getChangeKey, Diff, Hunk, parseDiff } from "react-diff-view";
-import type { HunkTokens } from "react-diff-view";
+import {
+	Diff,
+	getChangeKey,
+	Hunk,
+	parseDiff,
+} from "react-diff-view";
+import type { ChangeData, FileData, HunkData, HunkTokens } from "react-diff-view";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
+	DiffFileStat,
 	DiffMode,
 	DiffSnapshotView,
 	DiffViewMode,
@@ -14,22 +20,315 @@ import type {
 	SessionSummary,
 	ThreadResolution,
 } from "@shared/models";
+import {
+	DIFF_CHUNK_TARGET_ROWS,
+	shouldChunkFile,
+	shouldVirtualizeDiff,
+	splitFileHunks,
+} from "@ui/lib/diff-chunks";
+import { detectDiffLanguage } from "@ui/lib/diff-language";
 import { createAnchorFromChange } from "@ui/lib/diff-utils";
 import { measureDiffPerf, recordDiffPerf } from "@ui/lib/diff-perf";
 import { MarkdownRenderer } from "@ui/lib/markdown";
 import { MemoizedSessionInspector } from "./session-inspector";
 
-const INLINE_DIFF_RENDER_FILE_LIMIT = 24;
 const MIN_SELECTION_CHARS = 2;
-const ENABLE_DIFF_SYNTAX_HIGHLIGHT = false;
+const ENABLE_DIFF_SYNTAX_HIGHLIGHT = true;
 const ENABLE_DIFF_EDIT_MARKING = false;
+const MAX_PARSED_DIFF_CACHE_ENTRIES = 24;
 
-function tokenizeHunks(
-	hunks: Array<{ changes: unknown[] }>,
-): HunkTokens | undefined {
-	if (!ENABLE_DIFF_SYNTAX_HIGHLIGHT && !ENABLE_DIFF_EDIT_MARKING) return undefined;
-	if (!hunks.length) return undefined;
-	return undefined;
+type ParsedDiffModel = {
+	files: FileData[];
+	fileByPath: Map<string, FileData>;
+	fileStatsByPath: Map<string, DiffFileStat>;
+	fileChangeCountByPath: Map<string, number>;
+	fileRenderSegmentsByPath: Map<string, HunkData[][]>;
+	totalChangeCount: number;
+	largestFileChangeCount: number;
+};
+
+type DiffRenderItem =
+	| {
+			kind: "header";
+			path: string;
+			file: FileData;
+			isCollapsed: boolean;
+	  }
+	| {
+			kind: "body";
+			path: string;
+			file: FileData;
+			hunks: HunkData[];
+			segmentIndex: number;
+			changeCount: number;
+	  };
+
+type TokenizeWorkerSuccess = {
+	jobId: number;
+	success: true;
+	tokens: HunkTokens | null;
+};
+
+type TokenizeWorkerFailure = {
+	jobId: number;
+	success: false;
+	error: string;
+};
+
+const parsedDiffCache = new Map<string, ParsedDiffModel>();
+const diffTokenCache = new Map<string, HunkTokens | null>();
+const diffTokenInflight = new Map<string, Promise<HunkTokens | undefined>>();
+const diffTokenJobResolvers = new Map<
+	number,
+	{
+		key: string;
+		startedAt: number;
+		diffId?: string;
+		filePath: string;
+		resolve: (tokens: HunkTokens | undefined) => void;
+		reject: (error: Error) => void;
+	}
+>();
+let diffTokenWorker: Worker | null = null;
+let diffTokenJobId = 0;
+
+function rememberParsedDiff(cacheKey: string, model: ParsedDiffModel) {
+	if (parsedDiffCache.has(cacheKey)) {
+		parsedDiffCache.delete(cacheKey);
+	}
+	parsedDiffCache.set(cacheKey, model);
+	while (parsedDiffCache.size > MAX_PARSED_DIFF_CACHE_ENTRIES) {
+		const oldestKey = parsedDiffCache.keys().next().value;
+		if (!oldestKey) break;
+		parsedDiffCache.delete(oldestKey);
+	}
+	return model;
+}
+
+function buildParsedDiffModel(diff?: DiffSnapshotView): ParsedDiffModel {
+	if (!diff) {
+		return {
+			files: [],
+			fileByPath: new Map(),
+			fileStatsByPath: new Map(),
+			fileChangeCountByPath: new Map(),
+			fileRenderSegmentsByPath: new Map(),
+			totalChangeCount: 0,
+			largestFileChangeCount: 0,
+		};
+	}
+
+	const cached = parsedDiffCache.get(diff.cacheKey);
+	if (cached) {
+		recordDiffPerf({
+			kind: "parse_diff",
+			diffId: diff.cacheKey,
+			durationMs: 0,
+			timestamp: Date.now(),
+			metadata: {
+				cacheHit: true,
+				patchBytes: diff.patch.length,
+				fileCount: cached.files.length,
+			},
+		});
+		return rememberParsedDiff(diff.cacheKey, cached);
+	}
+
+	const files = measureDiffPerf(
+		"parse_diff",
+		() => parseDiff(diff.patch, { nearbySequences: "zip" }),
+		{
+			diffId: diff.cacheKey,
+			metadata: {
+				cacheHit: false,
+				patchBytes: diff.patch.length,
+				fileCount: diff.stats.filesChanged,
+			},
+		},
+	);
+
+	const fileByPath = new Map<string, FileData>();
+	const fileChangeCountByPath = new Map<string, number>();
+	const fileRenderSegmentsByPath = new Map<string, HunkData[][]>();
+	let totalChangeCount = 0;
+	let largestFileChangeCount = 0;
+
+	for (const file of files) {
+		const path = file.newPath || file.oldPath;
+		fileByPath.set(path, file);
+		let changeCount = 0;
+		for (const hunk of file.hunks) {
+			changeCount += hunk.changes.length;
+		}
+		totalChangeCount += changeCount;
+		largestFileChangeCount = Math.max(largestFileChangeCount, changeCount);
+		fileChangeCountByPath.set(path, changeCount);
+		const renderSegments = shouldChunkFile(changeCount, file.hunks.length)
+			? splitFileHunks(file.hunks, DIFF_CHUNK_TARGET_ROWS).map((chunk) => [chunk])
+			: [file.hunks];
+		fileRenderSegmentsByPath.set(path, renderSegments);
+	}
+
+	const fileStatsByPath = new Map<string, DiffFileStat>();
+	for (const fileStat of diff.files) {
+		fileStatsByPath.set(fileStat.path, fileStat);
+		if (fileStat.oldPath) {
+			fileStatsByPath.set(fileStat.oldPath, fileStat);
+		}
+	}
+
+	return rememberParsedDiff(diff.cacheKey, {
+		files,
+		fileByPath,
+		fileStatsByPath,
+		fileChangeCountByPath,
+		fileRenderSegmentsByPath,
+		totalChangeCount,
+		largestFileChangeCount,
+	});
+}
+
+function getDiffTokenWorker() {
+	if (typeof window === "undefined") return null;
+	if (diffTokenWorker) return diffTokenWorker;
+	diffTokenWorker = new Worker(
+		new URL("../../workers/diff-tokenize-worker.ts", import.meta.url),
+		{ type: "module" },
+	);
+	diffTokenWorker.addEventListener(
+		"message",
+		(event: MessageEvent<TokenizeWorkerSuccess | TokenizeWorkerFailure>) => {
+			const resolver = diffTokenJobResolvers.get(event.data.jobId);
+			if (!resolver) return;
+			diffTokenJobResolvers.delete(event.data.jobId);
+			if (!event.data.success) {
+				diffTokenCache.set(resolver.key, null);
+				diffTokenInflight.delete(resolver.key);
+				resolver.reject(new Error(event.data.error));
+				return;
+			}
+			diffTokenCache.set(resolver.key, event.data.tokens);
+			diffTokenInflight.delete(resolver.key);
+			recordDiffPerf({
+				kind: "tokenize_worker",
+				diffId: resolver.diffId,
+				filePath: resolver.filePath,
+				durationMs: performance.now() - resolver.startedAt,
+				timestamp: Date.now(),
+				metadata: {
+					cacheHit: false,
+					hasTokens: Boolean(event.data.tokens),
+				},
+			});
+			resolver.resolve(event.data.tokens ?? undefined);
+		},
+	);
+	return diffTokenWorker;
+}
+
+function requestFileTokens(params: {
+	diffId?: string;
+	diffKey: string;
+	filePath: string;
+	language?: string;
+	hunks: HunkData[];
+}) {
+	if (!ENABLE_DIFF_SYNTAX_HIGHLIGHT || !params.language || params.hunks.length === 0) {
+		return Promise.resolve(undefined);
+	}
+	const cacheKey = `${params.diffKey}\u0000${params.filePath}\u0000${params.language}`;
+	if (diffTokenCache.has(cacheKey)) {
+		recordDiffPerf({
+			kind: "tokenize_file",
+			diffId: params.diffId,
+			filePath: params.filePath,
+			durationMs: 0,
+			timestamp: Date.now(),
+			metadata: {
+				cacheHit: true,
+				language: params.language,
+				hasTokens: Boolean(diffTokenCache.get(cacheKey)),
+			},
+		});
+		return Promise.resolve(diffTokenCache.get(cacheKey) ?? undefined);
+	}
+	const inflight = diffTokenInflight.get(cacheKey);
+	if (inflight) return inflight;
+
+	recordDiffPerf({
+		kind: "tokenize_file",
+		diffId: params.diffId,
+		filePath: params.filePath,
+		durationMs: 0,
+		timestamp: Date.now(),
+		metadata: {
+			cacheHit: false,
+			language: params.language,
+			changeCount: params.hunks.reduce((count, hunk) => count + hunk.changes.length, 0),
+		},
+	});
+
+	const worker = getDiffTokenWorker();
+	if (!worker) return Promise.resolve(undefined);
+
+	const promise = new Promise<HunkTokens | undefined>((resolve, reject) => {
+		const jobId = ++diffTokenJobId;
+		diffTokenJobResolvers.set(jobId, {
+			key: cacheKey,
+			startedAt: performance.now(),
+			diffId: params.diffId,
+			filePath: params.filePath,
+			resolve,
+			reject,
+		});
+		worker.postMessage({
+			jobId,
+			language: params.language,
+			hunks: params.hunks,
+		});
+	}).catch(() => undefined);
+
+	diffTokenInflight.set(cacheKey, promise);
+	return promise;
+}
+
+function useDiffTokens(params: {
+	diffId?: string;
+	diffKey?: string;
+	filePath: string;
+	language?: string;
+	hunks: HunkData[];
+	enabled: boolean;
+}) {
+	const [tokens, setTokens] = useState<HunkTokens | undefined>(undefined);
+
+	useEffect(() => {
+		let cancelled = false;
+		if (!params.enabled || !params.diffKey || !params.language || params.hunks.length === 0) {
+			setTokens(undefined);
+			return;
+		}
+		const cacheKey = `${params.diffKey}\u0000${params.filePath}\u0000${params.language}`;
+		if (diffTokenCache.has(cacheKey)) {
+			setTokens(diffTokenCache.get(cacheKey) ?? undefined);
+			return;
+		}
+		setTokens(undefined);
+		void requestFileTokens({
+			diffId: params.diffId,
+			diffKey: params.diffKey,
+			filePath: params.filePath,
+			language: params.language,
+			hunks: params.hunks,
+		}).then((nextTokens) => {
+			if (!cancelled) setTokens(nextTokens);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [params.diffId, params.diffKey, params.enabled, params.filePath, params.hunks, params.language]);
+
+	return tokens;
 }
 
 function ResolutionBadge(props: { resolution: ThreadResolution }) {
@@ -183,33 +482,21 @@ function InlineThread(props: {
 	);
 }
 
-function lineValue(change: { type: string } & Record<string, unknown>, side: "old" | "new") {
+function lineValue(change: ChangeData, side: "old" | "new") {
 	if (side === "old" && "oldLineNumber" in change) {
-		return (change.oldLineNumber as number | undefined) ?? -1;
+		return change.oldLineNumber ?? -1;
 	}
 	if ("lineNumber" in change) {
-		return (change.lineNumber as number | undefined) ?? -1;
+		return change.lineNumber ?? -1;
 	}
 	if ("oldLineNumber" in change) {
-		return (change.oldLineNumber as number | undefined) ?? -1;
+		return change.oldLineNumber ?? -1;
 	}
 	return -1;
 }
 
 function threadLookupKey(filePath: string, side: "old" | "new", line: number) {
 	return `${filePath}\u0000${side}\u0000${line}`;
-}
-
-function fileStats(file: { hunks: Array<{ changes: Array<{ type: string }> }> }) {
-	let additions = 0;
-	let deletions = 0;
-	for (const hunk of file.hunks) {
-		for (const change of hunk.changes) {
-			if (change.type === "insert") additions += 1;
-			if (change.type === "delete") deletions += 1;
-		}
-	}
-	return { additions, deletions };
 }
 
 function fileChangeCount(file: { hunks: Array<{ changes: unknown[] }> }) {
@@ -227,9 +514,7 @@ type DiffPaneSession = Pick<
 
 function buildWidgetsForFile(params: {
 	diffId?: string;
-	file: {
-		hunks: Array<{ changes: Array<{ type: string } & Record<string, unknown>> }>;
-	};
+	file: FileData;
 	path: string;
 	threadIndex: Map<string, CommentThreadView[]>;
 	draftAnchor: CommentAnchor | null;
@@ -322,6 +607,93 @@ function buildWidgetsForFile(params: {
 	);
 }
 
+function DiffFileHeader(props: {
+	path: string;
+	stats: { additions: number; deletions: number; type: string };
+	isCollapsed: boolean;
+	onToggle: () => void;
+}) {
+	return (
+		<div data-file-path={props.path}>
+			<button
+				type="button"
+				onClick={props.onToggle}
+				className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
+			>
+				<ChevronRight
+					className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${props.isCollapsed ? "" : "rotate-90"}`}
+				/>
+				<span className="mono flex-1 truncate text-xs text-white/60">{props.path}</span>
+				<span className="text-2xs text-state-applied">+{props.stats.additions}</span>
+				<span className="text-2xs text-state-error">-{props.stats.deletions}</span>
+				<span className="text-2xs uppercase tracking-wider text-white/25">
+					{props.stats.type}
+				</span>
+			</button>
+		</div>
+	);
+}
+
+const MemoizedDiffFileHeader = memo(DiffFileHeader);
+
+function DiffBodySection(props: {
+	diff?: DiffSnapshotView;
+	file: FileData;
+	path: string;
+	hunks: HunkData[];
+	viewType: DiffViewMode;
+	widgets?: Record<string, React.ReactNode>;
+	onSelectChange: (file: FileData, change: ChangeData) => void;
+}) {
+	const language = useMemo(() => detectDiffLanguage(props.path), [props.path]);
+	const tokens = useDiffTokens({
+		diffId: props.diff?.cacheKey,
+		diffKey: props.diff?.cacheKey,
+		filePath: props.path,
+		language,
+		hunks: props.file.hunks,
+		enabled: ENABLE_DIFF_SYNTAX_HIGHLIGHT || ENABLE_DIFF_EDIT_MARKING,
+	});
+
+	return (
+		<div data-file-path={props.path}>
+			<Diff
+				viewType={props.viewType}
+				diffType={props.file.type}
+				hunks={props.hunks}
+				tokens={tokens}
+				gutterType="default"
+				gutterEvents={{
+					onClick: ({ change }) => {
+						if (!change) return;
+						props.onSelectChange(props.file, change);
+					},
+				}}
+				widgets={props.widgets}
+			>
+				{(hunks) =>
+					hunks.map((hunk) => (
+						<Hunk
+							key={`${hunk.content}-${hunk.oldStart}-${hunk.newStart}`}
+							hunk={hunk}
+						/>
+					))}
+			</Diff>
+		</div>
+	);
+}
+
+const MemoizedDiffBodySection = memo(
+	DiffBodySection,
+	(prev, next) =>
+		prev.diff?.cacheKey === next.diff?.cacheKey &&
+		prev.file === next.file &&
+		prev.hunks === next.hunks &&
+		prev.viewType === next.viewType &&
+		prev.widgets === next.widgets &&
+		prev.path === next.path,
+);
+
 type DiffPaneProps = {
 	session?: DiffPaneSession;
 	inspector?: SessionInspectorView;
@@ -367,22 +739,16 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	} | null>(null);
 	const diffContentRef = useRef<HTMLDivElement>(null);
 	const deferredSearch = useDeferredValue(search);
-	const parsedFiles = useMemo(
-		() =>
-			measureDiffPerf(
-				"parse_diff",
-				() => (props.diff ? parseDiff(props.diff.patch, { nearbySequences: "zip" }) : []),
-				{
-					diffId: props.diff?.id,
-					metadata: { patchBytes: props.diff?.patch.length ?? 0 },
-				},
-			),
-		[props.diff],
+	const diffKey = props.diff?.cacheKey;
+	const parsedDiffModel = useMemo(
+		() => buildParsedDiffModel(props.diff),
+		[diffKey, props.diff?.files, props.diff?.patch],
 	);
+	const parsedFiles = parsedDiffModel.files;
 
 	useEffect(() => {
 		setCollapsedFiles(new Set());
-	}, [props.diff?.id]);
+	}, [diffKey]);
 
 	const selectedRevision = useMemo(
 		() => props.revisions.find((r) => r.revisionNumber === props.selectedRevisionNumber),
@@ -416,15 +782,6 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		);
 	}, [deferredSearch, parsedFiles]);
 
-	const filteredFileIndexByPath = useMemo(() => {
-		const map = new Map<string, number>();
-		for (let index = 0; index < filteredFiles.length; index += 1) {
-			const file = filteredFiles[index];
-			map.set(file.newPath || file.oldPath, index);
-		}
-		return map;
-	}, [filteredFiles]);
-
 	const threadIndex = useMemo(() => {
 		const index = new Map<string, CommentThreadView[]>();
 		for (const thread of visibleThreads) {
@@ -448,49 +805,10 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		return map;
 	}, [visibleThreads]);
 
-	const fileStatsByPath = useMemo(() => {
-		const map = new Map<string, { additions: number; deletions: number }>();
-		for (const file of filteredFiles) {
-			const path = file.newPath || file.oldPath;
-			map.set(path, fileStats(file));
-		}
-		return map;
-	}, [filteredFiles]);
-
-	const fileChangeCountByPath = useMemo(() => {
-		const map = new Map<string, number>();
-		for (const file of filteredFiles) {
-			const path = file.newPath || file.oldPath;
-			map.set(path, fileChangeCount(file));
-		}
-		return map;
-	}, [filteredFiles]);
-
-	const tokenCacheRef = useRef<Map<string, HunkTokens | undefined>>(new Map());
 	const widgetCacheRef = useRef<Map<string, Record<string, React.ReactNode>>>(new Map());
 	useEffect(() => {
-		tokenCacheRef.current.clear();
 		widgetCacheRef.current.clear();
-	}, [props.diff?.id, props.diff?.patch]);
-
-	const getTokensForFile = useCallback(
-		(path: string, hunks: Array<{ changes: unknown[] }>) => {
-			const cache = tokenCacheRef.current;
-			if (cache.has(path)) return cache.get(path);
-			const tokens = measureDiffPerf(
-				"tokenize_file",
-				() => tokenizeHunks(hunks),
-				{
-					diffId: props.diff?.id,
-					filePath: path,
-					metadata: { enabled: ENABLE_DIFF_SYNTAX_HIGHLIGHT || ENABLE_DIFF_EDIT_MARKING },
-				},
-			);
-			cache.set(path, tokens);
-			return tokens;
-		},
-		[props.diff?.id],
-	);
+	}, [diffKey]);
 
 	const visibleThreadKey = useMemo(
 		() =>
@@ -505,17 +823,15 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 	const getWidgetsForFile = useCallback(
 		(
-			file: {
-				hunks: Array<{ changes: Array<{ type: string } & Record<string, unknown>> }>;
-			},
+			file: FileData,
 			path: string,
 		) => {
-			const cacheKey = `${path}\u0000${visibleThreadKey}\u0000${draftKey}\u0000${canManageSelectedRevision ? "editable" : "readonly"}`;
+			const cacheKey = `${diffKey ?? "no-diff"}\u0000${path}\u0000${visibleThreadKey}\u0000${draftKey}\u0000${canManageSelectedRevision ? "editable" : "readonly"}`;
 			const cache = widgetCacheRef.current;
 			const cached = cache.get(cacheKey);
 			if (cached) return cached;
 			const widgets = buildWidgetsForFile({
-				diffId: props.diff?.id,
+				diffId: props.diff?.cacheKey,
 				file,
 				path,
 				threadIndex,
@@ -544,7 +860,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			draftAnchor,
 			draftBody,
 			draftKey,
-			props.diff?.id,
+			diffKey,
 			props.onCreateThread,
 			props.onReopenThread,
 			props.onReplyToThread,
@@ -555,6 +871,75 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		],
 	);
 
+	const fileStatsByPath = useMemo(() => parsedDiffModel.fileStatsByPath, [parsedDiffModel]);
+	const toggleCollapsedFile = useCallback((path: string) => {
+		setCollapsedFiles((prev) => {
+			const next = new Set(prev);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+	}, []);
+
+	const handleSelectChange = useCallback(
+		(file: FileData, change: ChangeData) => {
+			if (!canAnnotateSelectedRevision || !props.diff) return;
+			const hunk = file.hunks.find((candidate) => candidate.changes.includes(change));
+			if (!hunk) return;
+			setDraftAnchor(
+				createAnchorFromChange({
+					file,
+					hunk,
+					change,
+					diff: props.diff,
+				}),
+			);
+		},
+		[canAnnotateSelectedRevision, props.diff],
+	);
+
+	const renderItems = useMemo(() => {
+		const items: DiffRenderItem[] = [];
+		for (const file of filteredFiles) {
+			const path = file.newPath || file.oldPath;
+			const isCollapsed = collapsedFiles.has(path);
+			items.push({
+				kind: "header",
+				path,
+				file,
+				isCollapsed,
+			});
+			if (isCollapsed) continue;
+			const segments = parsedDiffModel.fileRenderSegmentsByPath.get(path) ?? [file.hunks];
+			for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+				const hunks = segments[segmentIndex];
+				let changeCount = 0;
+				for (const hunk of hunks) {
+					changeCount += hunk.changes.length;
+				}
+				items.push({
+					kind: "body",
+					path,
+					file,
+					hunks,
+					segmentIndex,
+					changeCount,
+				});
+			}
+		}
+		return items;
+	}, [collapsedFiles, filteredFiles, parsedDiffModel.fileRenderSegmentsByPath]);
+
+	const headerItemIndexByPath = useMemo(() => {
+		const map = new Map<string, number>();
+		renderItems.forEach((item, index) => {
+			if (item.kind === "header") {
+				map.set(item.path, index);
+			}
+		});
+		return map;
+	}, [renderItems]);
+
 	const fileListParentRef = useRef<HTMLDivElement | null>(null);
 	const rowVirtualizer = useVirtualizer({
 		count: filteredFiles.length,
@@ -563,21 +948,35 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		gap: 1,
 	});
 
-	const shouldVirtualizeDiffContent = filteredFiles.length > INLINE_DIFF_RENDER_FILE_LIMIT;
+	const shouldVirtualizeDiffContent = useMemo(
+		() =>
+			shouldVirtualizeDiff({
+				fileCount: filteredFiles.length,
+				renderItemCount: renderItems.length,
+				totalChangeCount: parsedDiffModel.totalChangeCount,
+				largestFileChangeCount: parsedDiffModel.largestFileChangeCount,
+				patchBytes: props.diff?.patch.length ?? 0,
+			}),
+		[
+			filteredFiles.length,
+			renderItems.length,
+			parsedDiffModel.largestFileChangeCount,
+			parsedDiffModel.totalChangeCount,
+			props.diff?.patch.length,
+		],
+	);
 
 	const estimateDiffItemSize = useCallback((index: number) => {
-		const file = filteredFiles[index];
-		if (!file) return 120;
-		const path = file.newPath || file.oldPath;
-		if (collapsedFiles.has(path)) return 42;
-		const changeCount = fileChangeCountByPath.get(path) ?? 0;
-		const threadCount = threadCountByFilePath.get(path) ?? 0;
+		const item = renderItems[index];
+		if (!item) return 120;
+		if (item.kind === "header") return 42;
+		const threadCount = item.segmentIndex === 0 ? (threadCountByFilePath.get(item.path) ?? 0) : 0;
 		const lineHeight = viewType === "split" ? 19 : 17;
-		return Math.max(140, 56 + changeCount * lineHeight + threadCount * 120);
-	}, [collapsedFiles, fileChangeCountByPath, filteredFiles, threadCountByFilePath, viewType]);
+		return Math.max(84, 16 + item.changeCount * lineHeight + threadCount * 120);
+	}, [renderItems, threadCountByFilePath, viewType]);
 
 	const diffVirtualizer = useVirtualizer({
-		count: filteredFiles.length,
+		count: renderItems.length,
 		getScrollElement: () => diffContentRef.current,
 		estimateSize: estimateDiffItemSize,
 		overscan: 2,
@@ -587,15 +986,25 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	useEffect(() => {
 		recordDiffPerf({
 			kind: "diff_render_mode",
-			diffId: props.diff?.id,
+			diffId: props.diff?.cacheKey,
 			durationMs: 0,
 			timestamp: Date.now(),
 			metadata: {
 				virtualized: shouldVirtualizeDiffContent,
 				fileCount: filteredFiles.length,
+				renderItemCount: renderItems.length,
+				chunkedFiles: Array.from(parsedDiffModel.fileRenderSegmentsByPath.values()).filter(
+					(segments) => segments.length > 1,
+				).length,
 			},
 		});
-	}, [filteredFiles.length, props.diff?.id, shouldVirtualizeDiffContent]);
+	}, [
+		filteredFiles.length,
+		parsedDiffModel.fileRenderSegmentsByPath,
+		props.diff?.cacheKey,
+		renderItems.length,
+		shouldVirtualizeDiffContent,
+	]);
 
 	const revisionState = selectedRevision?.state;
 	const hasDraftComments = (selectedRevision?.threads.length ?? 0) > 0;
@@ -627,7 +1036,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	}, [selectionPopup]);
 
 	const scrollToFile = useCallback((filePath: string) => {
-		const index = filteredFileIndexByPath.get(filePath);
+		const index = headerItemIndexByPath.get(filePath);
 		if (index === undefined) return;
 		if (shouldVirtualizeDiffContent) {
 			diffVirtualizer.scrollToIndex(index, { align: "start" });
@@ -637,7 +1046,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 			`[data-file-path="${CSS.escape(filePath)}"]`,
 		);
 		target?.scrollIntoView({ block: "start" });
-	}, [diffVirtualizer, filteredFileIndexByPath, shouldVirtualizeDiffContent]);
+	}, [diffVirtualizer, headerItemIndexByPath, shouldVirtualizeDiffContent]);
 
 	const handleDiffMouseUp = useCallback(
 		(_e: React.MouseEvent) => {
@@ -744,9 +1153,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		}
 	}, [canAnnotateSelectedRevision, selectionPopup, filteredFiles, props.diff]);
 
-	const renderFile = useCallback(
+	const renderDiffItem = useCallback(
 		(
-			file: (typeof filteredFiles)[number],
+			item: DiffRenderItem,
 			key: React.Key,
 			options?: {
 				style?: React.CSSProperties;
@@ -754,93 +1163,68 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				measure?: boolean;
 			},
 		) => {
-			if (!file) return null;
-			const path = file.newPath || file.oldPath;
-			const isCollapsed = collapsedFiles.has(path);
-			const tokens = isCollapsed ? undefined : getTokensForFile(path, file.hunks);
-			const stats = fileStatsByPath.get(path) ?? { additions: 0, deletions: 0 };
-			const widgets = isCollapsed ? undefined : getWidgetsForFile(file as never, path);
+			const stats = fileStatsByPath.get(item.path) ?? {
+				additions: 0,
+				deletions: 0,
+				type: item.file.type,
+				path: item.path,
+			};
+			if (item.kind === "header") {
+				return (
+					<div
+						key={key}
+						ref={options?.measure ? diffVirtualizer.measureElement : undefined}
+						data-index={options?.index}
+						className={options?.style ? "absolute left-0 right-0" : undefined}
+						style={options?.style}
+					>
+						<MemoizedDiffFileHeader
+							path={item.path}
+							stats={{
+								additions: stats.additions,
+								deletions: stats.deletions,
+								type: stats.type,
+							}}
+							isCollapsed={item.isCollapsed}
+							onToggle={() => toggleCollapsedFile(item.path)}
+						/>
+					</div>
+				);
+			}
+			const widgets = getWidgetsForFile(item.file, item.path);
 			return (
 				<div
 					key={key}
 					ref={options?.measure ? diffVirtualizer.measureElement : undefined}
 					data-index={options?.index}
-					className={options?.style ? "absolute left-0 right-0" : undefined}
+					className={`${options?.style ? "absolute left-0 right-0" : ""} pb-3`.trim()}
 					style={options?.style}
 				>
-					<div data-file-path={path}>
-						<button
-							type="button"
-							onClick={() =>
-								setCollapsedFiles((prev) => {
-									const next = new Set(prev);
-									if (next.has(path)) next.delete(path);
-									else next.add(path);
-									return next;
-								})
-							}
-							className="mb-1.5 flex w-full items-center gap-2 border-b border-surface-border pb-1.5 text-left transition hover:bg-white/[0.02]"
-						>
-							<ChevronRight
-								className={`h-3.5 w-3.5 shrink-0 text-white/25 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-							/>
-							<span className="mono text-xs text-white/60 truncate flex-1">{path}</span>
-							<span className="text-2xs text-state-applied">+{stats.additions}</span>
-							<span className="text-2xs text-state-error">-{stats.deletions}</span>
-							<span className="text-2xs uppercase tracking-wider text-white/25">
-								{file.type}
-							</span>
-						</button>
-						{isCollapsed ? null : (
-							<Diff
-								viewType={viewType}
-								diffType={file.type}
-								hunks={file.hunks}
-								tokens={tokens}
-								gutterType="default"
-								gutterEvents={{
-									onClick: ({ change }) => {
-										if (!canAnnotateSelectedRevision || !change || !props.diff) {
-											return;
-										}
-										const hunk = file.hunks.find((candidate) =>
-											candidate.changes.includes(change),
-										);
-										if (!hunk) return;
-										setDraftAnchor(
-											createAnchorFromChange({
-												file,
-												hunk,
-												change,
-												diff: props.diff,
-											}),
-										);
-									},
-								}}
-								widgets={widgets}
-							>
-								{(hunks) =>
-									hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}
-							</Diff>
-						)}
-					</div>
+					<MemoizedDiffBodySection
+						diff={props.diff}
+						file={item.file}
+						path={item.path}
+						hunks={item.hunks}
+						viewType={viewType}
+						widgets={widgets}
+						onSelectChange={handleSelectChange}
+					/>
 				</div>
 			);
 		},
 		[
-			collapsedFiles,
 			diffVirtualizer.measureElement,
 			fileStatsByPath,
-			getTokensForFile,
 			getWidgetsForFile,
-			canAnnotateSelectedRevision,
+			handleSelectChange,
 			props.diff,
+			toggleCollapsedFile,
 			viewType,
 		],
 	);
 
 	useEffect(() => {
-		const diffId = props.diff?.id;
+		const diffId = props.diff?.cacheKey;
 		if (!diffId) return;
 		const start = performance.now();
 		const raf = window.requestAnimationFrame(() => {
@@ -851,13 +1235,14 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				timestamp: Date.now(),
 				metadata: {
 					fileCount: filteredFiles.length,
+					renderItemCount: renderItems.length,
 					virtualized: shouldVirtualizeDiffContent,
 					viewType,
 				},
 			});
 		});
 		return () => window.cancelAnimationFrame(raf);
-	}, [filteredFiles.length, props.diff?.id, shouldVirtualizeDiffContent, viewType]);
+	}, [filteredFiles.length, props.diff?.cacheKey, renderItems.length, shouldVirtualizeDiffContent, viewType]);
 
 	if (!props.diff) {
 		return (
@@ -1150,7 +1535,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 					{shouldVirtualizeDiffContent ? (
 						<div style={{ height: `${diffVirtualizer.getTotalSize()}px`, position: "relative" }}>
 							{diffVirtualizer.getVirtualItems().map((item) =>
-								renderFile(filteredFiles[item.index], item.key, {
+								renderDiffItem(renderItems[item.index], item.key, {
 									index: item.index,
 									measure: true,
 									style: { transform: `translateY(${item.start}px)` },
@@ -1158,8 +1543,13 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							)}
 						</div>
 					) : (
-						<div className="space-y-4">
-							{filteredFiles.map((file, index) => renderFile(file, file.newPath || file.oldPath || index))}
+						<div>
+							{renderItems.map((item, index) =>
+								renderDiffItem(
+									item,
+									`${item.path}:${item.kind === "body" ? item.segmentIndex : "header"}:${index}`,
+								),
+							)}
 						</div>
 					)}
 				</div>
