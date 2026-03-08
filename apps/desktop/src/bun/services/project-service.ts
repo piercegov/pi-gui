@@ -135,4 +135,20 @@ export class ProjectService {
 			projectId,
 		);
 	}
+
+	updateProjectMetadata(projectId: string, patch: Record<string, unknown>) {
+		const existing = this.db.get<{ metadata_json: string }>(
+			"select metadata_json from projects where id = ?",
+			projectId,
+		);
+		if (!existing) throw new Error("Project not found.");
+		const current = JSON.parse(existing.metadata_json || "{}") as Record<string, unknown>;
+		const merged = { ...current, ...patch };
+		this.db.run(
+			"update projects set metadata_json = ? where id = ?",
+			JSON.stringify(merged),
+			projectId,
+		);
+		return this.getProject(projectId)!;
+	}
 }

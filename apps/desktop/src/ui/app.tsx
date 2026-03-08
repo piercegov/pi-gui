@@ -14,6 +14,7 @@ import { ConversationPane } from "./components/chat/conversation-pane";
 import { DiffPane } from "./components/diff/diff-pane";
 import { TerminalDrawer } from "./components/terminal/terminal-drawer";
 import { SettingsDialog } from "./components/settings/settings-dialog";
+import { ProjectSettingsDialog } from "./components/settings/project-settings-dialog";
 import { PromptDialog } from "./components/shared/prompt-dialog";
 
 function ResizeHandle(props: {
@@ -85,7 +86,7 @@ function ContextUsageBar({ usage }: { usage: ContextUsageView }) {
 }
 
 export function App() {
-	const { projects, selectedProjectId, loadProjects, addProject, removeProject, selectProject } =
+	const { projects, selectedProjectId, loadProjects, addProject, removeProject, selectProject, updateProjectSettings } =
 		useProjectsStore();
 	const {
 		sessionsByProject,
@@ -121,6 +122,7 @@ export function App() {
 	const adjustDiffPaneWidth = useLayoutStore((state) => state.adjustDiffPaneWidth);
 	const appendTerminalOutput = useTerminalStore((state) => state.appendOutput);
 	const markTerminalExit = useTerminalStore((state) => state.markExit);
+	const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
 	const [toasts, setToasts] = useState<ToastMessage[]>([]);
 	const [promptDialog, setPromptDialog] = useState<{
 		title: string;
@@ -314,6 +316,18 @@ export function App() {
 		}
 	};
 
+	const handleRunProjectCommand = async () => {
+		if (!currentSession) return;
+		const project = projects.find((p) => p.id === currentSession.projectId);
+		if (!project?.metadata.runCommand) {
+			setProjectSettingsOpen(true);
+			return;
+		}
+		const layoutStore = useLayoutStore.getState();
+		if (!layoutStore.terminalOpen) layoutStore.toggleTerminal();
+		await rpc.request.runProjectCommand({ sessionId: currentSession.id });
+	};
+
 	useEffect(() => {
 		const onContextMenu = (event: MouseEvent) => {
 			const target = event.target as HTMLElement | null;
@@ -403,6 +417,8 @@ export function App() {
 						void handleArchiveSession(session, archived)
 					}
 					onOpenSettings={() => setSettingsOpen(true)}
+				onRunProjectCommand={() => void handleRunProjectCommand()}
+				onOpenProjectSettings={() => setProjectSettingsOpen(true)}
 				/>
 				</div>
 
@@ -495,6 +511,13 @@ export function App() {
 				settings={settings}
 				onOpenChange={setSettingsOpen}
 				onUpdate={updateSettings}
+			/>
+
+			<ProjectSettingsDialog
+				open={projectSettingsOpen}
+				project={projects.find((p) => p.id === selectedProjectId)}
+				onOpenChange={setProjectSettingsOpen}
+				onUpdate={updateProjectSettings}
 			/>
 
 			<PromptDialog

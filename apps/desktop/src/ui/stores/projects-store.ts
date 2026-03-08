@@ -10,6 +10,7 @@ type ProjectsState = {
 	addProject: (path: string) => Promise<ProjectSummary>;
 	removeProject: (projectId: string) => Promise<void>;
 	selectProject: (projectId: string) => void;
+	updateProjectSettings: (projectId: string, settings: { runCommand?: string }) => Promise<void>;
 };
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({
@@ -39,5 +40,9 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 	},
 	selectProject(projectId) {
 		set({ selectedProjectId: projectId });
+	},
+	async updateProjectSettings(projectId, settings) {
+		await rpc.request.updateProjectSettings({ projectId, settings });
+		await get().loadProjects();
 	},
 }));

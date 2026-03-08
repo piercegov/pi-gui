@@ -45,6 +45,14 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 				params: { projectId: string };
 				response: void;
 			};
+			updateProjectSettings: {
+				params: { projectId: string; settings: { runCommand?: string } };
+				response: ProjectSummary;
+			};
+			runProjectCommand: {
+				params: { sessionId: string };
+				response: { terminalId: string };
+			};
 			listSessions: {
 				params: { projectId: string };
 				response: SessionSummary[];
