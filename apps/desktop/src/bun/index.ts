@@ -403,6 +403,12 @@ ApplicationMenu.setApplicationMenu([
 ]);
 
 const url = await getMainViewUrl();
+const titleBarStyle =
+	process.platform === "darwin"
+		? "hiddenInset"
+		: process.platform === "linux"
+			? "hidden"
+			: "default";
 
 new BrowserWindow({
 	title: "Pi GUI",
@@ -413,6 +419,6 @@ new BrowserWindow({
 		x: 140,
 		y: 80,
 	},
-	titleBarStyle: "hiddenInset",
+	titleBarStyle,
 	rpc,
 });

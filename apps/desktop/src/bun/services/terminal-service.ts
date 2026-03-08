@@ -7,6 +7,24 @@ type TerminalSession = {
 	process: Bun.Subprocess;
 };
 
+function isFishShell(shell: string) {
+	const command = shell.trim();
+	return command === "fish" || command.endsWith("/fish");
+}
+
+function quoteForShell(value: string) {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildShellCommand(shell: string) {
+	if (process.platform === "linux" && isFishShell(shell) && Bun.which("script")) {
+		// Fish expects a controlling TTY for job control. Wrapping it with script(1)
+		// provides a real session/PTY on Linux where Bun.Terminal can be insufficient.
+		return ["script", "-qefc", `exec ${quoteForShell(shell)} -i`, "/dev/null"];
+	}
+	return [shell];
+}
+
 export class TerminalService {
 	private readonly terminals = new Map<string, TerminalSession>();
 
@@ -42,7 +60,7 @@ export class TerminalService {
 				});
 			},
 		});
-		const proc = Bun.spawn([params.shell], {
+		const proc = Bun.spawn(buildShellCommand(params.shell), {
 			cwd: params.cwd,
 			env: { ...process.env, TERM: "xterm-256color" },
 			terminal,

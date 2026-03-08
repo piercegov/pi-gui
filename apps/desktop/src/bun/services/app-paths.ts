@@ -1,8 +1,9 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const APP_NAME = "Pi GUI";
+const LINUX_APP_DIR = "pi-gui";
 
 function resolveAppDataDir() {
 	if (process.platform === "darwin") {
@@ -14,10 +15,17 @@ function resolveAppDataDir() {
 			APP_NAME,
 		);
 	}
-	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "pi-gui");
+	return join(
+		process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
+		LINUX_APP_DIR,
+	);
 }
 
 const appDataDir = resolveAppDataDir();
+const legacyLinuxAppDataDir =
+	process.platform === "linux"
+		? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), LINUX_APP_DIR)
+		: null;
 
 export const appPaths = {
 	appDataDir,
@@ -30,7 +38,23 @@ export const appPaths = {
 	tempDir: join(appDataDir, "tmp"),
 };
 
+function migrateLegacyLinuxAppData() {
+	if (process.platform !== "linux" || !legacyLinuxAppDataDir) return;
+	if (!existsSync(legacyLinuxAppDataDir) || existsSync(appPaths.appDataDir)) return;
+
+	try {
+		mkdirSync(join(appPaths.appDataDir, ".."), { recursive: true });
+		renameSync(legacyLinuxAppDataDir, appPaths.appDataDir);
+	} catch (error) {
+		console.warn(
+			`[app-paths] Failed to migrate legacy app data from ${legacyLinuxAppDataDir} to ${appPaths.appDataDir}:`,
+			error,
+		);
+	}
+}
+
 export function ensureAppPaths() {
+	migrateLegacyLinuxAppData();
 	mkdirSync(appPaths.appDataDir, { recursive: true });
 	mkdirSync(appPaths.logsDir, { recursive: true });
 	mkdirSync(appPaths.diffsDir, { recursive: true });
