@@ -524,12 +524,16 @@ export class PermissionService {
 		risk: CommandRisk,
 	) {
 		const normalizedTokens = normalizeTokens(tokens);
-		return policy.commandRules.find(
+		const matching = policy.commandRules.filter(
 			(rule) =>
 				rule.risk === risk &&
 				rule.tokens.length === normalizedTokens.length &&
 				rule.tokens.every((token, index) => token === normalizedTokens[index]),
 		);
+		if (matching.length === 0) return undefined;
+		const deny = matching.find((rule) => rule.effect === "deny");
+		if (deny) return deny;
+		return matching.find((rule) => rule.effect === "allow");
 	}
 
 	private appendCommandRule(
