@@ -274,6 +274,7 @@ export interface AppSettings {
 	stateReviewColor: string;
 	stateErrorColor: string;
 	stateAppliedColor: string;
+	agentSkillPaths: string[];
 	environmentOverrides: Record<string, string>;
 	shellEnvTimeoutMs: number;
 }
