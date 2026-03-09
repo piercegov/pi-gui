@@ -1,5 +1,9 @@
 {
 	"extends": "./tsconfig.base.json",
-	"include": ["apps/desktop/src", "packages/pi-review-extension/src"],
+	"include": [
+		"apps/desktop/src",
+		"packages/pi-review-extension/src",
+		"packages/pi-permissions-extension/src"
+	],
 	"exclude": ["node_modules", "dist", "build"]
 }

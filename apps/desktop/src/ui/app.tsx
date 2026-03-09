@@ -2,6 +2,8 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import type {
 	ContextUsageView,
 	ModelCatalogSummary,
+	PermissionPrompt,
+	PermissionPromptDecision,
 	SessionHydration,
 	SessionSummary,
 	ToastMessage,
@@ -23,6 +25,7 @@ import { SettingsDialog } from "./components/settings/settings-dialog";
 import { ProjectSettingsDialog } from "./components/settings/project-settings-dialog";
 import { NewSessionDialog } from "./components/shared/new-session-dialog";
 import { PromptDialog } from "./components/shared/prompt-dialog";
+import { PermissionPromptDialog } from "./components/shared/permission-prompt-dialog";
 import { PerfOverlay } from "./components/shell/perf-overlay";
 
 function StatusBar({ session }: { session?: SessionSummary }) {
@@ -170,6 +173,8 @@ export function App() {
 		undefined,
 	);
 	const [modelCatalogLoading, setModelCatalogLoading] = useState(false);
+	const [permissionPrompts, setPermissionPrompts] = useState<PermissionPrompt[]>([]);
+	const activePermissionPrompt = permissionPrompts[0];
 
 	useEffect(() => {
 		const root = document.documentElement;
@@ -358,6 +363,13 @@ export function App() {
 				setToasts((current) => current.filter((item) => item.id !== toast.id));
 			}, 3600);
 		};
+		const onPermissionPrompt = (prompt: PermissionPrompt) => {
+			setPermissionPrompts((current) =>
+				current.some((item) => item.id === prompt.id)
+					? current
+					: [...current, prompt],
+			);
+		};
 		rpc.addMessageListener("sessionSummaryUpdated", onSessionSummaryUpdated);
 		rpc.addMessageListener("sessionEvent", onSessionEvent);
 		rpc.addMessageListener("revisionUpdated", onRevisionUpdated);
@@ -366,6 +378,7 @@ export function App() {
 		rpc.addMessageListener("terminalData", onTerminalData);
 		rpc.addMessageListener("terminalExit", onTerminalExit);
 		rpc.addMessageListener("toast", onToast);
+		rpc.addMessageListener("permissionPrompt", onPermissionPrompt);
 		return () => {
 			rpc.removeMessageListener("sessionSummaryUpdated", onSessionSummaryUpdated);
 			rpc.removeMessageListener("sessionEvent", onSessionEvent);
@@ -375,8 +388,23 @@ export function App() {
 			rpc.removeMessageListener("terminalData", onTerminalData);
 			rpc.removeMessageListener("terminalExit", onTerminalExit);
 			rpc.removeMessageListener("toast", onToast);
+			rpc.removeMessageListener("permissionPrompt", onPermissionPrompt);
 		};
 	}, [appendTerminalOutput, applyEvent, markStale, markTerminalExit, updateRevision, updateThread, upsertSummary]);
+
+	const resolvePermissionPrompt = useCallback(
+		(decision: PermissionPromptDecision, selectedScopeId?: string) => {
+			const prompt = activePermissionPrompt;
+			if (!prompt) return;
+			setPermissionPrompts((current) => current.slice(1));
+			void rpc.request.resolvePermissionPrompt({
+				promptId: prompt.id,
+				decision,
+				selectedScopeId,
+			});
+		},
+		[activePermissionPrompt],
+	);
 
 	const promptForProjectPath = async () => {
 		const { path } = await rpc.request.pickProjectDirectory();
@@ -653,6 +681,12 @@ export function App() {
 				confirmLabel={promptDialog?.confirmLabel}
 				onConfirm={(value) => promptDialog?.onConfirm(value)}
 				onCancel={() => setPromptDialog(null)}
+			/>
+
+			<PermissionPromptDialog
+				open={Boolean(activePermissionPrompt)}
+				prompt={activePermissionPrompt}
+				onResolve={resolvePermissionPrompt}
 			/>
 
 			<StatusBar session={currentSession} />

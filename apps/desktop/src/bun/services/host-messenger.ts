@@ -2,6 +2,7 @@ import type {
 	CommentThreadView,
 	GitStatusView,
 	RevisionView,
+	PermissionPrompt,
 	SessionStreamEvent,
 	SessionSummary,
 	ToastMessage,
@@ -25,4 +26,5 @@ export interface HostMessenger {
 	}): void;
 	gitStatusUpdated(payload: GitStatusView): void;
 	toast(toast: ToastMessage): void;
+	permissionPrompt(prompt: PermissionPrompt): void;
 }

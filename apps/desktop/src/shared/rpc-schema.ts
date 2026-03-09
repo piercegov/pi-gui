@@ -9,7 +9,10 @@ import type {
 	DiffSnapshotView,
 	GitStatusView,
 	ModelCatalogSummary,
+	PermissionPrompt,
+	PermissionPromptResolution,
 	ProjectSummary,
+	ProjectPermissionPolicy,
 	RevisionView,
 	SessionHydration,
 	SessionInspectorView,
@@ -49,6 +52,18 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 			updateProjectSettings: {
 				params: { projectId: string; settings: Record<string, unknown> };
 				response: ProjectSummary;
+			};
+			getProjectPermissionPolicy: {
+				params: { projectId: string };
+				response: ProjectPermissionPolicy;
+			};
+			updateProjectPermissionPolicy: {
+				params: { projectId: string; policy: ProjectPermissionPolicy };
+				response: ProjectPermissionPolicy;
+			};
+			resolvePermissionPrompt: {
+				params: PermissionPromptResolution;
+				response: void;
 			};
 			listSessions: {
 				params: { projectId: string };
@@ -214,6 +229,7 @@ export type AppRpcSchema = ElectrobunRPCSchema & {
 			};
 			gitStatusUpdated: GitStatusView;
 			toast: ToastMessage;
+			permissionPrompt: PermissionPrompt;
 		};
 	};
 };

@@ -20,6 +20,7 @@ import type {
 	ToolActivityView,
 } from "../../shared/models";
 import { createPiReviewExtension } from "../../../../../packages/pi-review-extension/src/index";
+import { createPiPermissionsExtension } from "../../../../../packages/pi-permissions-extension/src/index";
 import {
 	PI_REVIEW_REPLY_EVENT,
 	type ReviewReplyPayload,
@@ -85,6 +86,17 @@ export class PiRuntimeManager {
 		buildReviewMarkdown(reviewRoundId: string): string;
 		getSessionIdByReviewRound(reviewRoundId: string): string | undefined;
 	};
+	private permissionState?: {
+		authorizeToolCall(params: {
+			sessionId: string;
+			projectId: string;
+			projectRoot: string;
+			cwdPath: string;
+			toolCallId: string;
+			toolName: string;
+			input: Record<string, unknown>;
+		}): Promise<{ allow: boolean; reason?: string }>;
+	};
 
 	constructor(
 		private readonly messenger: HostMessenger,
@@ -97,6 +109,10 @@ export class PiRuntimeManager {
 
 	setReviewBridge(bridge: NonNullable<PiRuntimeManager["reviewState"]>) {
 		this.reviewState = bridge;
+	}
+
+	setPermissionBridge(bridge: NonNullable<PiRuntimeManager["permissionState"]>) {
+		this.permissionState = bridge;
 	}
 
 	private mapConversationMessage(
@@ -678,6 +694,22 @@ export class PiRuntimeManager {
 						this.reviewState?.isFreezeActive(record.id) ?? false,
 					getActiveReviewRoundId: () =>
 						this.reviewState?.getActiveRevisionId(record.id),
+				}),
+				createPiPermissionsExtension({
+					authorizeToolCall: async (event) => {
+						if (!this.permissionState) {
+							return { allow: true };
+						}
+						return this.permissionState.authorizeToolCall({
+							sessionId: record.id,
+							projectId: record.project.id,
+							projectRoot: record.project.rootPath,
+							cwdPath: record.cwdPath,
+							toolCallId: event.toolCallId,
+							toolName: event.toolName,
+							input: event.input,
+						});
+					},
 				}),
 			],
 		});

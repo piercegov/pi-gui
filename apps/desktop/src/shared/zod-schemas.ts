@@ -326,6 +326,72 @@ export const toastSchema = z.object({
 	variant: z.enum(["info", "success", "warning", "error"]),
 });
 
+export const permissionEffectSchema = z.enum(["allow", "deny"]);
+export const permissionAccessSchema = z.enum(["read", "write"]);
+export const commandRiskSchema = z.enum(["read", "write", "destructive", "unknown"]);
+
+export const commandPermissionRuleSchema = z.object({
+	id: z.string(),
+	effect: permissionEffectSchema,
+	tokens: z.array(z.string()),
+	risk: commandRiskSchema,
+	createdAt: z.number().int(),
+});
+
+export const pathPermissionRuleSchema = z.object({
+	id: z.string(),
+	effect: permissionEffectSchema,
+	access: permissionAccessSchema,
+	path: z.string(),
+	recursive: z.boolean(),
+	createdAt: z.number().int(),
+});
+
+export const projectPermissionPolicySchema = z.object({
+	projectId: z.string(),
+	version: z.number().int(),
+	updatedAt: z.number().int(),
+	commandRules: z.array(commandPermissionRuleSchema),
+	pathRules: z.array(pathPermissionRuleSchema),
+});
+
+export const permissionPromptDecisionSchema = z.enum([
+	"allow_once",
+	"allow_always",
+	"deny_once",
+	"deny_always",
+]);
+
+export const permissionPathScopeOptionSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	path: z.string(),
+	recursive: z.boolean(),
+	description: z.string(),
+});
+
+export const permissionPromptSchema = z.object({
+	id: z.string(),
+	sessionId: z.string(),
+	projectId: z.string(),
+	toolName: z.enum(["bash", "read", "edit", "write"]),
+	reason: z.enum(["unknown_command", "out_of_scope_path"]),
+	message: z.string(),
+	command: z.string().optional(),
+	commandTokens: z.array(z.string()).optional(),
+	commandRisk: commandRiskSchema.optional(),
+	targetPath: z.string().optional(),
+	pathAccess: permissionAccessSchema.optional(),
+	pathScopes: z.array(permissionPathScopeOptionSchema).optional(),
+	createdAt: z.number().int(),
+});
+
+export const permissionPromptResolutionSchema = z.object({
+	promptId: z.string(),
+	decision: permissionPromptDecisionSchema,
+	selectedScopeId: z.string().optional(),
+});
+
 export const sessionStreamEventSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("message_upsert"),
