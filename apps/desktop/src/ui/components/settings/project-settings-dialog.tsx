@@ -1,6 +1,22 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProjectSummary } from "@shared/models";
+import { PathListEditor } from "./path-list-editor";
+
+function parseSkillPaths(project?: ProjectSummary) {
+	const raw = project?.metadata.agentSkillPaths;
+	if (!Array.isArray(raw)) return [];
+	const next: string[] = [];
+	for (const value of raw) {
+		if (typeof value !== "string") continue;
+		const trimmed = value.trim();
+		if (!trimmed) continue;
+		if (next.includes(trimmed)) continue;
+		next.push(trimmed);
+	}
+	return next;
+}
 
 export function ProjectSettingsDialog(props: {
 	open: boolean;
@@ -8,6 +24,33 @@ export function ProjectSettingsDialog(props: {
 	onOpenChange: (open: boolean) => void;
 	onUpdate: (projectId: string, settings: Record<string, unknown>) => Promise<void>;
 }) {
+	const [agentSkillPaths, setAgentSkillPaths] = useState<string[]>([]);
+	const [saving, setSaving] = useState(false);
+	const persistedSkillPaths = useMemo(
+		() => parseSkillPaths(props.project),
+		[props.project],
+	);
+
+	useEffect(() => {
+		if (!props.open) return;
+		setAgentSkillPaths(persistedSkillPaths);
+	}, [props.open, persistedSkillPaths]);
+
+	const hasChanges =
+		JSON.stringify(agentSkillPaths) !== JSON.stringify(persistedSkillPaths);
+
+	const saveSettings = async () => {
+		if (!props.project || !hasChanges || saving) return;
+		setSaving(true);
+		try {
+			await props.onUpdate(props.project.id, {
+				agentSkillPaths,
+			});
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	return (
 		<Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
 			<Dialog.Portal>
@@ -22,8 +65,42 @@ export function ProjectSettingsDialog(props: {
 						</Dialog.Close>
 					</div>
 
-					<div className="px-5 py-4">
-						<p className="text-2xs text-white/30">No project-level settings available yet.</p>
+					<div className="space-y-3 px-5 py-4">
+						<div>
+							<div className="text-xs text-white/80">Agent Skills paths</div>
+							<p className="mt-0.5 text-2xs text-white/35">
+								Additional skill directories or SKILL.md files for this project.
+								These are merged with global and default skill discovery.
+							</p>
+						</div>
+
+						<PathListEditor
+							paths={agentSkillPaths}
+							onUpdate={setAgentSkillPaths}
+							addButtonLabel="Add project skill path"
+						/>
+
+						<p className="text-2xs text-white/25">
+							Changes apply when opening or creating sessions.
+						</p>
+
+						<div className="flex justify-end gap-2 border-t border-surface-border pt-3">
+							<button
+								type="button"
+								onClick={() => props.onOpenChange(false)}
+								className="px-3 py-1.5 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
+							>
+								Close
+							</button>
+							<button
+								type="button"
+								onClick={() => void saveSettings()}
+								disabled={!props.project || !hasChanges || saving}
+								className="bg-accent/20 px-3 py-1.5 text-xs text-accent transition hover:bg-accent/30 disabled:opacity-50"
+							>
+								{saving ? "Saving..." : "Save"}
+							</button>
+						</div>
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>
