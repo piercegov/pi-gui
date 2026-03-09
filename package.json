@@ -14,7 +14,8 @@
     "hmr": "vite --port 5173",
     "build": "bun run prebuild:providers && vite build && electrobun build",
     "build:canary": "bun run prebuild:providers && vite build && electrobun build --env=canary",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "test:permissions": "bun test apps/desktop/src/bun/services/permission-service.test.ts packages/pi-permissions-extension/src/index.test.ts"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "0.57.1",
