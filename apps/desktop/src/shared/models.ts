@@ -316,6 +316,71 @@ export interface ToastMessage {
 	variant: "info" | "success" | "warning" | "error";
 }
 
+export type PermissionEffect = "allow" | "deny";
+export type PermissionAccess = "read" | "write";
+export type CommandRisk = "read" | "write" | "destructive" | "unknown";
+
+export interface CommandPermissionRule {
+	id: string;
+	effect: PermissionEffect;
+	tokens: string[];
+	risk: CommandRisk;
+	createdAt: number;
+}
+
+export interface PathPermissionRule {
+	id: string;
+	effect: PermissionEffect;
+	access: PermissionAccess;
+	path: string;
+	recursive: boolean;
+	createdAt: number;
+}
+
+export interface ProjectPermissionPolicy {
+	projectId: string;
+	version: number;
+	updatedAt: number;
+	commandRules: CommandPermissionRule[];
+	pathRules: PathPermissionRule[];
+}
+
+export type PermissionPromptDecision =
+	| "allow_once"
+	| "allow_always"
+	| "deny_once"
+	| "deny_always";
+
+export interface PermissionPathScopeOption {
+	id: string;
+	label: string;
+	path: string;
+	recursive: boolean;
+	description: string;
+}
+
+export interface PermissionPrompt {
+	id: string;
+	sessionId: string;
+	projectId: string;
+	toolName: "bash" | "read" | "edit" | "write";
+	reason: "unknown_command" | "out_of_scope_path";
+	message: string;
+	command?: string;
+	commandTokens?: string[];
+	commandRisk?: CommandRisk;
+	targetPath?: string;
+	pathAccess?: PermissionAccess;
+	pathScopes?: PermissionPathScopeOption[];
+	createdAt: number;
+}
+
+export interface PermissionPromptResolution {
+	promptId: string;
+	decision: PermissionPromptDecision;
+	selectedScopeId?: string;
+}
+
 export type SessionStreamEvent =
 	| {
 			type: "message_upsert";

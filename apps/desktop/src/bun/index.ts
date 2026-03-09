@@ -16,7 +16,10 @@ import {
 	diffSnapshotSchema,
 	gitStatusSchema,
 	modelCatalogSummarySchema,
+	permissionPromptResolutionSchema,
+	permissionPromptSchema,
 	projectSummarySchema,
+	projectPermissionPolicySchema,
 	revisionSchema,
 	sessionInspectorSchema,
 	sessionHydrationSchema,
@@ -36,6 +39,7 @@ import { PiRuntimeManager } from "./pi/runtime-manager";
 import { SessionService } from "./services/session-service";
 import { TerminalService } from "./services/terminal-service";
 import type { HostMessenger } from "./services/host-messenger";
+import { PermissionService } from "./services/permission-service";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -105,11 +109,15 @@ const messenger: HostMessenger = {
 	toast(toast) {
 		sendToView("toast", toastSchema.parse(toast));
 	},
+	permissionPrompt(prompt) {
+		sendToView("permissionPrompt", permissionPromptSchema.parse(prompt));
+	},
 };
 
 const checkpoints = new CheckpointService(db, git);
 const review = new ReviewService(db, checkpoints, git, messenger);
 const runtime = new PiRuntimeManager(messenger, settings);
+const permissions = new PermissionService(db, messenger);
 const sessions = new SessionService(
 	db,
 	projects,
@@ -137,6 +145,9 @@ runtime.setReviewBridge({
 	buildReviewMarkdown: (reviewRoundId) => review.buildReviewMarkdown(reviewRoundId),
 	getSessionIdByReviewRound: (reviewRoundId) =>
 		review.getSessionIdByReviewRound(reviewRoundId),
+});
+runtime.setPermissionBridge({
+	authorizeToolCall: async (params) => permissions.authorizeToolCall(params),
 });
 
 const addProjectParamsSchema = z.object({ path: z.string() });
@@ -196,6 +207,10 @@ const updateProjectSettingsSchema = z.object({
 	projectId: z.string(),
 	settings: z.object({}),
 });
+const updateProjectPermissionPolicySchema = z.object({
+	projectId: z.string(),
+	policy: projectPermissionPolicySchema,
+});
 const terminalOpenSchema = sessionIdSchema;
 const terminalResizeSchema = z.object({
 	terminalId: z.string(),
@@ -248,6 +263,24 @@ rpc = defineElectrobunRPC<AppRpcSchema>("bun", {
 				return projectSummarySchema.parse(
 					projects.updateProjectMetadata(parsed.projectId, parsed.settings),
 				);
+			},
+			getProjectPermissionPolicy: async (params: unknown) =>
+				projectPermissionPolicySchema.parse(
+					permissions.getProjectPermissionPolicy(
+						projectIdSchema.parse(params).projectId,
+					),
+				),
+			updateProjectPermissionPolicy: async (params: unknown) => {
+				const parsed = updateProjectPermissionPolicySchema.parse(params);
+				return projectPermissionPolicySchema.parse(
+					permissions.updateProjectPermissionPolicy(
+						parsed.projectId,
+						parsed.policy,
+					),
+				);
+			},
+			resolvePermissionPrompt: async (params: unknown) => {
+				permissions.resolvePrompt(permissionPromptResolutionSchema.parse(params));
 			},
 			listSessions: async (params: unknown) =>
 				z
