@@ -246,6 +246,29 @@ export class PiRuntimeManager {
 		});
 	}
 
+	private parseSkillPaths(value: unknown): string[] {
+		if (!Array.isArray(value)) return [];
+		const paths: string[] = [];
+		for (const candidate of value) {
+			if (typeof candidate !== "string") continue;
+			const trimmed = candidate.trim();
+			if (!trimmed) continue;
+			if (paths.includes(trimmed)) continue;
+			paths.push(trimmed);
+		}
+		return paths;
+	}
+
+	private resolveSkillPaths(record: RuntimeSessionRecord): string[] {
+		const globalPaths = this.parseSkillPaths(
+			this.appSettings.getAppSettings().agentSkillPaths,
+		);
+		const projectPaths = this.parseSkillPaths(record.project.metadata.agentSkillPaths);
+		return [...globalPaths, ...projectPaths].filter(
+			(path, index, values) => values.indexOf(path) === index,
+		);
+	}
+
 	getModelCatalog(cwdPath: string): ModelCatalogSummary {
 		this.applyEnvironmentOverrides();
 		const settingsManager = SettingsManager.create(cwdPath);
@@ -641,10 +664,12 @@ export class PiRuntimeManager {
 		});
 		const settingsManager = SettingsManager.create(record.cwdPath);
 		this.applySessionModelOverrides(settingsManager, record);
+		const additionalSkillPaths = this.resolveSkillPaths(record);
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: record.cwdPath,
 			settingsManager,
 			eventBus,
+			additionalSkillPaths,
 			extensionFactories: [
 				createPiReviewExtension({
 					sessionId: record.id,
