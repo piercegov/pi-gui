@@ -18,6 +18,7 @@ export const defaultAppSettings: AppSettings = {
 	stateReviewColor: "#f0a830",
 	stateErrorColor: "#f44336",
 	stateAppliedColor: "#66bb6a",
+	agentSkillPaths: [],
 	environmentOverrides: {},
 	shellEnvTimeoutMs: 10_000,
 };
