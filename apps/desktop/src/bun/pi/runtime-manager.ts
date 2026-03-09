@@ -74,6 +74,8 @@ type ManagedRuntime = {
 	nextTurnIndex?: number;
 	/** Monotonic counter for stable entry IDs during streaming. */
 	nextMessageEmitIndex: number;
+	/** True while the agent is executing (between agent_start and agent_end). */
+	isAgentRunning: boolean;
 };
 
 export class PiRuntimeManager {
@@ -498,6 +500,7 @@ export class PiRuntimeManager {
 
 	private async handleEvent(runtime: ManagedRuntime, event: AgentSessionEvent) {
 		if (event.type === "agent_start") {
+			runtime.isAgentRunning = true;
 			await this.hooks?.onStatusPatch(runtime.record.id, {
 				status: "running",
 				modelLabel: runtime.session.model
@@ -507,6 +510,7 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "agent_end") {
+			runtime.isAgentRunning = false;
 			await this.hooks?.onStatusPatch(runtime.record.id, {
 				status: "idle",
 			});
@@ -737,6 +741,7 @@ export class PiRuntimeManager {
 			toolActivity: [],
 			unsubscribe: () => undefined,
 			nextMessageEmitIndex: session.messages.length,
+			isAgentRunning: false,
 		};
 		await this.bindRuntime(runtime);
 		this.runtimes.set(record.id, runtime);
@@ -783,6 +788,10 @@ export class PiRuntimeManager {
 		if (!runtime) throw new Error("Session runtime not loaded.");
 		this.emitUserMessage(runtime, sessionId, text);
 		await runtime.session.followUp(text);
+	}
+
+	isSessionRunning(sessionId: string): boolean {
+		return this.runtimes.get(sessionId)?.isAgentRunning ?? false;
 	}
 
 	async abortSession(sessionId: string) {

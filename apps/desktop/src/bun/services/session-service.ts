@@ -710,24 +710,28 @@ export class SessionService {
 			safeTurnIndex,
 		);
 		await this.refreshGitStatus(sessionId);
-		const changedFiles = Number(
-			this.parseMetadata(this.getSessionRow(sessionId)?.metadata_json ?? "{}")
-				.changedFilesCount ?? 0,
-		);
-		if (changedFiles > 0) {
-			// Ensure a revision exists for review
-			this.review.ensureActiveRevision(sessionId);
-			this.db.run(
-				"update sessions set review_state = 'reviewing', status = 'reviewing', last_activity_at = ? where id = ?",
-				Date.now(),
-				sessionId,
+		// Only transition status if the agent has stopped running.
+		// During multi-turn execution, agent_start fires once and agent_end fires
+		// at the very end — we must not overwrite "running" on intermediate turns.
+		if (!this.runtime.isSessionRunning(sessionId)) {
+			const changedFiles = Number(
+				this.parseMetadata(this.getSessionRow(sessionId)?.metadata_json ?? "{}")
+					.changedFilesCount ?? 0,
 			);
-		} else {
-			this.db.run(
-				"update sessions set status = 'idle', last_activity_at = ? where id = ?",
-				Date.now(),
-				sessionId,
-			);
+			if (changedFiles > 0) {
+				this.review.ensureActiveRevision(sessionId);
+				this.db.run(
+					"update sessions set review_state = 'reviewing', status = 'reviewing', last_activity_at = ? where id = ?",
+					Date.now(),
+					sessionId,
+				);
+			} else {
+				this.db.run(
+					"update sessions set status = 'idle', last_activity_at = ? where id = ?",
+					Date.now(),
+					sessionId,
+				);
+			}
 		}
 		this.messenger.diffInvalidated({ sessionId });
 		await this.refreshAndPublishSession(sessionId);
@@ -736,6 +740,23 @@ export class SessionService {
 	configureRuntimeHooks() {
 		this.runtime.setHooks({
 			onStatusPatch: async (sessionId, patch) => {
+				// When agent finishes (agent_end → status "idle"), apply review logic
+				if (patch.status === "idle") {
+					await this.refreshGitStatus(sessionId);
+					const changedFiles = Number(
+						this.parseMetadata(this.getSessionRow(sessionId)?.metadata_json ?? "{}")
+							.changedFilesCount ?? 0,
+					);
+					if (changedFiles > 0) {
+						this.review.ensureActiveRevision(sessionId);
+						this.db.run(
+							"update sessions set review_state = 'reviewing', last_activity_at = ? where id = ?",
+							Date.now(),
+							sessionId,
+						);
+						patch = { ...patch, status: "reviewing" };
+					}
+				}
 				await this.updateRuntimeStatus(sessionId, patch);
 			},
 			onTurnStart: async (sessionId, turnIndex, event) => {
