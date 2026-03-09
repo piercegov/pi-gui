@@ -464,7 +464,7 @@ const titleBarStyle =
 new BrowserWindow({
 	title: "Pi GUI",
 	url,
-	renderer: process.platform === "linux" ? "cef" : undefined,
+	renderer: (process.platform === "linux" || process.env.USE_CEF === "1") ? "cef" : undefined,
 	frame: {
 		width: 1480,
 		height: 960,

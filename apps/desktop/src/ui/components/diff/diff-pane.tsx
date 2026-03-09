@@ -8,7 +8,7 @@ import {
 } from "react-diff-view";
 import type { ChangeData, FileData, HunkData, HunkTokens } from "react-diff-view";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { SplitSquareHorizontal, Rows3, Search, CheckCircle2, Send, GitCompare, AlertTriangle, Info, MessageSquarePlus, Loader2, MessageSquare, ChevronDown, ChevronRight, Flag, Check, Play, GitMerge, PanelLeftClose, PanelLeftOpen, X, ArrowUp, ArrowDown } from "lucide-react";
 import type {
 	CommentAnchor,
 	CommentThreadView,
@@ -725,6 +725,203 @@ const MemoizedDiffBodySection = memo(
 		prev.path === next.path,
 );
 
+// --- Content search (Cmd/Ctrl+F) ---
+
+function collectTextNodes(root: HTMLElement): Text[] {
+	const nodes: Text[] = [];
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	let node: Text | null;
+	while ((node = walker.nextNode() as Text | null)) {
+		if (node.textContent && node.textContent.length > 0) {
+			nodes.push(node);
+		}
+	}
+	return nodes;
+}
+
+function findMatchRanges(root: HTMLElement, query: string): Range[] {
+	if (!query) return [];
+	const lower = query.toLowerCase();
+	const ranges: Range[] = [];
+	const textNodes = collectTextNodes(root);
+	for (const node of textNodes) {
+		const text = node.textContent!.toLowerCase();
+		let start = 0;
+		while (true) {
+			const idx = text.indexOf(lower, start);
+			if (idx === -1) break;
+			const range = document.createRange();
+			range.setStart(node, idx);
+			range.setEnd(node, idx + query.length);
+			ranges.push(range);
+			start = idx + 1;
+		}
+	}
+	return ranges;
+}
+
+const HIGHLIGHT_NAME = "diff-search";
+const HIGHLIGHT_CURRENT_NAME = "diff-search-current";
+const hasHighlightAPI = typeof CSS !== "undefined" && "highlights" in CSS;
+
+function applyHighlights(ranges: Range[], currentIndex: number) {
+	if (!hasHighlightAPI) return;
+	const hl = new Highlight(...ranges);
+	const currentRange = ranges[currentIndex];
+	const hlCurrent = currentRange ? new Highlight(currentRange) : new Highlight();
+	CSS.highlights.set(HIGHLIGHT_NAME, hl);
+	CSS.highlights.set(HIGHLIGHT_CURRENT_NAME, hlCurrent);
+}
+
+function clearHighlights() {
+	if (!hasHighlightAPI) return;
+	CSS.highlights.set(HIGHLIGHT_NAME, new Highlight());
+	CSS.highlights.set(HIGHLIGHT_CURRENT_NAME, new Highlight());
+}
+
+type DiffContentSearchProps = {
+	visible: boolean;
+	onClose: () => void;
+	containerRef: React.RefObject<HTMLDivElement | null>;
+};
+
+function DiffContentSearch({ visible, onClose, containerRef }: DiffContentSearchProps) {
+	const [query, setQuery] = useState("");
+	const [matches, setMatches] = useState<Range[]>([]);
+	const [currentMatch, setCurrentMatch] = useState(0);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const deferredQuery = useDeferredValue(query);
+
+	useEffect(() => {
+		if (visible) {
+			inputRef.current?.focus();
+			inputRef.current?.select();
+		} else {
+			clearHighlights();
+		}
+	}, [visible]);
+
+	useEffect(() => {
+		if (!visible || !containerRef.current || !deferredQuery) {
+			setMatches([]);
+			setCurrentMatch(0);
+			clearHighlights();
+			return;
+		}
+		const ranges = findMatchRanges(containerRef.current, deferredQuery);
+		setMatches(ranges);
+		setCurrentMatch(ranges.length > 0 ? 0 : -1);
+		if (ranges.length > 0) {
+			applyHighlights(ranges, 0);
+		} else {
+			clearHighlights();
+		}
+	}, [deferredQuery, visible, containerRef]);
+
+	// Clear highlights immediately when raw query is emptied, don't wait for deferred.
+	// Also clear stale matches so other effects don't re-apply them.
+	useEffect(() => {
+		if (!query) {
+			setMatches([]);
+			setCurrentMatch(0);
+			clearHighlights();
+		}
+	}, [query]);
+
+	useEffect(() => {
+		if (!query || matches.length === 0 || currentMatch < 0) return;
+		applyHighlights(matches, currentMatch);
+		const range = matches[currentMatch];
+		if (range) {
+			const rect = range.getBoundingClientRect();
+			const container = containerRef.current;
+			if (container) {
+				const containerRect = container.getBoundingClientRect();
+				const isVisible =
+					rect.top >= containerRect.top &&
+					rect.bottom <= containerRect.bottom;
+				if (!isVisible) {
+					const el = range.startContainer.parentElement;
+					el?.scrollIntoView({ block: "center" });
+				}
+			}
+		}
+	}, [query, currentMatch, matches, containerRef]);
+
+	const goNext = useCallback(() => {
+		if (matches.length === 0) return;
+		setCurrentMatch((prev) => (prev + 1) % matches.length);
+	}, [matches.length]);
+
+	const goPrev = useCallback(() => {
+		if (matches.length === 0) return;
+		setCurrentMatch((prev) => (prev - 1 + matches.length) % matches.length);
+	}, [matches.length]);
+
+	const close = useCallback(() => {
+		setQuery("");
+		setMatches([]);
+		setCurrentMatch(0);
+		clearHighlights();
+		onClose();
+	}, [onClose]);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Escape") {
+				e.preventDefault();
+				close();
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				if (e.shiftKey) goPrev();
+				else goNext();
+			}
+		},
+		[close, goNext, goPrev],
+	);
+
+	if (!visible) return null;
+
+	return (
+		<div className="absolute right-4 top-2 z-40 flex items-center gap-1 border border-surface-border bg-surface-1 px-2 py-1 shadow-lg">
+			<Search className="h-3 w-3 text-white/30" />
+			<input
+				ref={inputRef}
+				value={query}
+				onChange={(e) => setQuery(e.target.value)}
+				onKeyDown={handleKeyDown}
+				placeholder="Find in diff…"
+				className="w-48 bg-transparent px-1 py-0.5 text-xs text-white/80 placeholder:text-white/25 outline-none"
+			/>
+			{query && (
+				<span className="text-2xs text-white/35 tabular-nums">
+					{matches.length > 0 ? `${currentMatch + 1}/${matches.length}` : "0/0"}
+				</span>
+			)}
+			<button
+				onClick={goPrev}
+				disabled={matches.length === 0}
+				className="p-0.5 text-white/40 transition hover:text-white/70 disabled:text-white/15"
+			>
+				<ArrowUp className="h-3 w-3" />
+			</button>
+			<button
+				onClick={goNext}
+				disabled={matches.length === 0}
+				className="p-0.5 text-white/40 transition hover:text-white/70 disabled:text-white/15"
+			>
+				<ArrowDown className="h-3 w-3" />
+			</button>
+			<button
+				onClick={close}
+				className="p-0.5 text-white/40 transition hover:text-white/70"
+			>
+				<X className="h-3 w-3" />
+			</button>
+		</div>
+	);
+}
+
 type DiffPaneProps = {
 	session?: DiffPaneSession;
 	inspector?: SessionInspectorView;
@@ -769,7 +966,9 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		lineNumber: number;
 		side: "old" | "new";
 	} | null>(null);
+	const [contentSearchOpen, setContentSearchOpen] = useState(false);
 	const diffContentRef = useRef<HTMLDivElement>(null);
+	const sectionRef = useRef<HTMLElement>(null);
 	const deferredSearch = useDeferredValue(search);
 	const diffKey = currentDiff?.cacheKey;
 	const parsedDiffModel = useMemo(
@@ -1046,6 +1245,21 @@ function DiffPaneComponent(props: DiffPaneProps) {
 		};
 	}, [selectionPopup]);
 
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+				const section = sectionRef.current;
+				if (!section) return;
+				if (!section.contains(document.activeElement) && document.activeElement !== section) return;
+				e.preventDefault();
+				e.stopPropagation();
+				setContentSearchOpen(true);
+			}
+		};
+		document.addEventListener("keydown", handleKeyDown, true);
+		return () => document.removeEventListener("keydown", handleKeyDown, true);
+	}, []);
+
 	const scrollToFile = useCallback((filePath: string) => {
 		const index = headerItemIndexByPath.get(filePath);
 		if (index === undefined) return;
@@ -1289,7 +1503,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 	}
 
 	return (
-		<section className="flex h-full flex-col border-l border-surface-border bg-surface-0">
+		<section ref={sectionRef} tabIndex={-1} className="flex h-full flex-col border-l border-surface-border bg-surface-0 outline-none">
 			{/* Toolbar */}
 			<div className="border-b border-surface-border px-3 py-2">
 				<div className="flex flex-wrap items-center gap-1.5">
@@ -1535,7 +1749,13 @@ function DiffPaneComponent(props: DiffPaneProps) {
 				)}
 
 				{/* Diff content */}
-				<div ref={diffContentRef} className="diff-shell overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
+				<div className="relative flex-1 min-h-0">
+				<DiffContentSearch
+					visible={contentSearchOpen}
+					onClose={() => setContentSearchOpen(false)}
+					containerRef={diffContentRef}
+				/>
+				<div ref={diffContentRef} className="diff-shell h-full overflow-auto px-3 py-3" onMouseUp={handleDiffMouseUp}>
 					{shouldVirtualizeDiffContent ? (
 						<div style={{ height: `${diffVirtualizer.getTotalSize()}px`, position: "relative" }}>
 							{diffVirtualizer.getVirtualItems().map((item) =>
@@ -1556,6 +1776,7 @@ function DiffPaneComponent(props: DiffPaneProps) {
 							)}
 						</div>
 					)}
+				</div>
 				</div>
 			</div>
 

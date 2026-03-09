@@ -19,7 +19,7 @@ export default {
 		},
 		watchIgnore: ["apps/desktop/dist/**"],
 		mac: {
-			bundleCEF: false,
+			bundleCEF: process.env.USE_CEF === "1",
 		},
 		linux: {
 			bundleCEF: true,
