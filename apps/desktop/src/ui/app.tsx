@@ -118,6 +118,7 @@ export function App() {
 	const addProject = useProjectsStore((state) => state.addProject);
 	const removeProject = useProjectsStore((state) => state.removeProject);
 	const selectProject = useProjectsStore((state) => state.selectProject);
+	const updateProjectSettings = useProjectsStore((state) => state.updateProjectSettings);
 	const sessionsByProject = useSessionsStore((state) => state.sessionsByProject);
 	const inspectorsBySession = useSessionsStore((state) => state.inspectorsBySession);
 	const selectedSessionId = useSessionsStore((state) => state.selectedSessionId);
@@ -658,6 +659,7 @@ export function App() {
 				open={projectSettingsOpen}
 				project={projects.find((p) => p.id === selectedProjectId)}
 				onOpenChange={setProjectSettingsOpen}
+				onUpdate={updateProjectSettings}
 			/>
 
 			<NewSessionDialog

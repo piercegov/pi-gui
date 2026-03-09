@@ -3,6 +3,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { X, CheckCircle2, AlertCircle, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { AppSettings } from "@shared/models";
+import { PathListEditor } from "./path-list-editor";
 
 const CODE_FONTS = [
 	"JetBrains Mono",
@@ -330,6 +331,21 @@ export function SettingsDialog(props: {
 							</Tabs.Content>
 
 							<Tabs.Content value="integrations" className="space-y-0">
+								<SettingField
+									label="Agent Skills paths"
+									description="Additional skill directories or SKILL.md files loaded for every project. These are additive to Pi's default skill discovery."
+								>
+									<PathListEditor
+										paths={props.settings?.agentSkillPaths ?? []}
+										onUpdate={(agentSkillPaths) =>
+											void props.onUpdate({ agentSkillPaths })
+										}
+										addButtonLabel="Add skill path"
+									/>
+									<p className="mt-2 text-2xs text-white/25">
+										Changes apply when opening or creating sessions.
+									</p>
+								</SettingField>
 								<SettingField
 									label="Terminal shell"
 									description="POSIX shell for the embedded terminal."

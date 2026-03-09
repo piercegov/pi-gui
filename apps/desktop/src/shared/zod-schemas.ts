@@ -283,6 +283,7 @@ export const appSettingsSchema = z.object({
 	archiveRetentionPolicy: z.enum(["manual", "30d", "90d"]),
 	showArchived: z.boolean(),
 	uiDensity: z.enum(["compact", "comfortable"]),
+	agentSkillPaths: z.array(z.string()).optional(),
 	environmentOverrides: z.record(z.string(), z.string()).optional(),
 	shellEnvTimeoutMs: z.number().int().optional(),
 });

@@ -3,21 +3,51 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import type { ProjectPermissionPolicy, ProjectSummary } from "@shared/models";
 import { rpc } from "@ui/lib/rpc-client";
+import { PathListEditor } from "./path-list-editor";
+
+function parseSkillPaths(project?: ProjectSummary) {
+	const raw = project?.metadata.agentSkillPaths;
+	if (!Array.isArray(raw)) return [];
+	const next: string[] = [];
+	for (const value of raw) {
+		if (typeof value !== "string") continue;
+		const trimmed = value.trim();
+		if (!trimmed) continue;
+		if (next.includes(trimmed)) continue;
+		next.push(trimmed);
+	}
+	return next;
+}
 
 export function ProjectSettingsDialog(props: {
 	open: boolean;
 	project?: ProjectSummary;
 	onOpenChange: (open: boolean) => void;
+	onUpdate: (projectId: string, settings: Record<string, unknown>) => Promise<void>;
 }) {
+	const [agentSkillPaths, setAgentSkillPaths] = useState<string[]>([]);
+	const [savingSkills, setSavingSkills] = useState(false);
+	const persistedSkillPaths = useMemo(
+		() => parseSkillPaths(props.project),
+		[props.project],
+	);
+	const hasSkillChanges =
+		JSON.stringify(agentSkillPaths) !== JSON.stringify(persistedSkillPaths);
+
 	const [policy, setPolicy] = useState<ProjectPermissionPolicy | undefined>(undefined);
-	const [loading, setLoading] = useState(false);
-	const [saving, setSaving] = useState(false);
+	const [loadingPolicy, setLoadingPolicy] = useState(false);
+	const [savingPolicy, setSavingPolicy] = useState(false);
 	const [error, setError] = useState<string | undefined>(undefined);
 	const projectId = props.project?.id;
 
 	useEffect(() => {
+		if (!props.open) return;
+		setAgentSkillPaths(persistedSkillPaths);
+	}, [persistedSkillPaths, props.open]);
+
+	useEffect(() => {
 		if (!props.open || !projectId) return;
-		setLoading(true);
+		setLoadingPolicy(true);
 		setError(undefined);
 		void rpc.request
 			.getProjectPermissionPolicy({ projectId })
@@ -27,12 +57,24 @@ export function ProjectSettingsDialog(props: {
 			.catch((err) => {
 				setError(err instanceof Error ? err.message : "Failed to load permissions.");
 			})
-			.finally(() => setLoading(false));
+			.finally(() => setLoadingPolicy(false));
 	}, [projectId, props.open]);
+
+	const saveSkillSettings = async () => {
+		if (!projectId || !hasSkillChanges || savingSkills) return;
+		setSavingSkills(true);
+		try {
+			await props.onUpdate(projectId, {
+				agentSkillPaths,
+			});
+		} finally {
+			setSavingSkills(false);
+		}
+	};
 
 	const persistPolicy = async (nextPolicy: ProjectPermissionPolicy) => {
 		if (!projectId) return;
-		setSaving(true);
+		setSavingPolicy(true);
 		setError(undefined);
 		try {
 			const saved = await rpc.request.updateProjectPermissionPolicy({
@@ -43,14 +85,14 @@ export function ProjectSettingsDialog(props: {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to update permissions.");
 		} finally {
-			setSaving(false);
+			setSavingPolicy(false);
 		}
 	};
 
 	const commandRules = policy?.commandRules ?? [];
 	const pathRules = policy?.pathRules ?? [];
 	const hasRules = commandRules.length > 0 || pathRules.length > 0;
-	const canReset = Boolean(policy && hasRules && !saving);
+	const canReset = Boolean(policy && hasRules && !savingPolicy);
 	const policySummary = useMemo(() => {
 		return `${commandRules.length} command rules · ${pathRules.length} path rules`;
 	}, [commandRules.length, pathRules.length]);
@@ -70,7 +112,38 @@ export function ProjectSettingsDialog(props: {
 					</div>
 
 					<div className="max-h-[calc(78vh-52px)] overflow-auto px-5 py-4">
-						<div className="mb-4 flex items-center justify-between">
+						<div className="space-y-3 border-b border-surface-border pb-4">
+							<div>
+								<div className="text-xs text-white/80">Agent Skills paths</div>
+								<p className="mt-0.5 text-2xs text-white/35">
+									Additional skill directories or SKILL.md files for this project.
+									These are merged with global and default skill discovery.
+								</p>
+							</div>
+
+							<PathListEditor
+								paths={agentSkillPaths}
+								onUpdate={setAgentSkillPaths}
+								addButtonLabel="Add project skill path"
+							/>
+
+							<p className="text-2xs text-white/25">
+								Changes apply when opening or creating sessions.
+							</p>
+
+							<div className="flex justify-end gap-2 border-t border-surface-border pt-3">
+								<button
+									type="button"
+									onClick={() => void saveSkillSettings()}
+									disabled={!projectId || !hasSkillChanges || savingSkills}
+									className="bg-accent/20 px-3 py-1.5 text-xs text-accent transition hover:bg-accent/30 disabled:opacity-50"
+								>
+									{savingSkills ? "Saving..." : "Save skill paths"}
+								</button>
+							</div>
+						</div>
+
+						<div className="mb-4 mt-4 flex items-center justify-between">
 							<div>
 								<div className="text-xs text-white/75">Permission policy</div>
 								<div className="text-2xs text-white/35">{policySummary}</div>
@@ -92,7 +165,7 @@ export function ProjectSettingsDialog(props: {
 							</button>
 						</div>
 
-						{loading ? (
+						{loadingPolicy ? (
 							<p className="text-xs text-white/35">Loading policy…</p>
 						) : (
 							<div className="space-y-5">
@@ -119,7 +192,7 @@ export function ProjectSettingsDialog(props: {
 													</div>
 													<button
 														type="button"
-														disabled={saving || !policy}
+														disabled={savingPolicy || !policy}
 														onClick={() => {
 															if (!policy) return;
 															void persistPolicy({
@@ -164,7 +237,7 @@ export function ProjectSettingsDialog(props: {
 													</div>
 													<button
 														type="button"
-														disabled={saving || !policy}
+														disabled={savingPolicy || !policy}
 														onClick={() => {
 															if (!policy) return;
 															void persistPolicy({
@@ -190,6 +263,16 @@ export function ProjectSettingsDialog(props: {
 						{error ? (
 							<p className="mt-3 text-xs text-state-error">{error}</p>
 						) : null}
+
+						<div className="mt-4 flex justify-end border-t border-surface-border pt-3">
+							<button
+								type="button"
+								onClick={() => props.onOpenChange(false)}
+								className="px-3 py-1.5 text-xs text-white/50 transition hover:bg-white/5 hover:text-white/70"
+							>
+								Close
+							</button>
+						</div>
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>

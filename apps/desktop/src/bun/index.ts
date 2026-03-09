@@ -205,7 +205,7 @@ const resolveThreadParamsSchema = z.object({
 const updateSettingsSchema = appSettingsSchema.partial();
 const updateProjectSettingsSchema = z.object({
 	projectId: z.string(),
-	settings: z.object({}),
+	settings: z.record(z.string(), z.unknown()),
 });
 const updateProjectPermissionPolicySchema = z.object({
 	projectId: z.string(),
