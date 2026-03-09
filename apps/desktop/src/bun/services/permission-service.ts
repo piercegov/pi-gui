@@ -36,6 +36,7 @@ type PermissionAuthorizeResult = {
 
 type CommandAssessment = {
 	segment: string;
+	fullTokens: string[];
 	tokens: string[];
 	risk: CommandRisk;
 };
@@ -152,6 +153,107 @@ const AWS_DESTRUCTIVE_OPS = new Set([
 	"terminate-instances",
 	"destroy",
 	"purge",
+]);
+
+const SAFE_READ_EXECUTABLES = new Set([
+	"cat",
+	"head",
+	"tail",
+	"less",
+	"more",
+	"ls",
+	"wc",
+	"sort",
+	"uniq",
+	"tr",
+	"cut",
+	"paste",
+	"column",
+	"nl",
+	"grep",
+	"rg",
+	"ag",
+	"ack",
+	"fgrep",
+	"egrep",
+	"file",
+	"stat",
+	"du",
+	"df",
+	"tree",
+	"find",
+	"which",
+	"where",
+	"type",
+	"command",
+	"dirname",
+	"basename",
+	"realpath",
+	"readlink",
+	"echo",
+	"printf",
+	"date",
+	"uname",
+	"id",
+	"hostname",
+	"arch",
+	"true",
+	"false",
+	"test",
+	"[",
+	"pwd",
+	"printenv",
+	"whoami",
+	"env",
+	"jq",
+	"yq",
+	"md5sum",
+	"sha256sum",
+	"shasum",
+	"cksum",
+	"diff",
+	"comm",
+	"cmp",
+	"strings",
+	"od",
+	"xxd",
+	"hexdump",
+	"sed",
+	"git",
+]);
+
+const SAFE_GIT_SUBCOMMANDS = new Set([
+	"status",
+	"log",
+	"diff",
+	"show",
+	"branch",
+	"tag",
+	"remote",
+	"rev-parse",
+	"config",
+	"describe",
+	"shortlog",
+	"reflog",
+	"ls-files",
+	"ls-tree",
+	"ls-remote",
+	"name-rev",
+	"merge-base",
+	"blame",
+	"cat-file",
+	"for-each-ref",
+]);
+
+const GIT_CONFIG_MUTATION_FLAGS = new Set([
+	"--unset",
+	"--unset-all",
+	"--add",
+	"--replace-all",
+	"--rename-section",
+	"--remove-section",
+	"--global",
+	"--system",
 ]);
 
 function normalizeTokens(tokens: string[]) {
@@ -473,6 +575,7 @@ export class PermissionService {
 			if (signature.length === 0) continue;
 			assessments.push({
 				segment,
+				fullTokens: tokens,
 				tokens: signature,
 				risk: this.classifyCommandRisk(tokens, signature),
 			});
@@ -669,6 +772,131 @@ export class PermissionService {
 		};
 	}
 
+	private hasOutputRedirection(segment: string) {
+		let inSingle = false;
+		let inDouble = false;
+		let escaped = false;
+		for (let i = 0; i < segment.length; i += 1) {
+			const char = segment[i];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\" && !inSingle) {
+				escaped = true;
+				continue;
+			}
+			if (char === "'" && !inDouble) {
+				inSingle = !inSingle;
+				continue;
+			}
+			if (char === '"' && !inSingle) {
+				inDouble = !inDouble;
+				continue;
+			}
+			if (!inSingle && !inDouble && char === ">") return true;
+		}
+		return false;
+	}
+
+	private isSegmentAutoAllowable(
+		assessment: CommandAssessment,
+		projectRoot: string,
+		cwdPath: string,
+	) {
+		const { fullTokens, segment } = assessment;
+
+		// Reject output redirection
+		if (this.hasOutputRedirection(segment)) return false;
+
+		// Find the executable, rejecting sudo
+		const execIndex = this.firstExecutableToken(fullTokens);
+		if (execIndex < 0) return false;
+
+		// Check for sudo — even for read-only commands, sudo changes security context
+		for (let i = 0; i < execIndex; i += 1) {
+			if (fullTokens[i] === "sudo") return false;
+		}
+
+		const executable =
+			fullTokens[execIndex].split(/[\\/]/).at(-1)?.toLowerCase() ??
+			fullTokens[execIndex].toLowerCase();
+
+		// --version special case: any executable + only --version is safe
+		const argsAfterExec = fullTokens.slice(execIndex + 1);
+		if (
+			argsAfterExec.length === 1 &&
+			argsAfterExec[0] === "--version"
+		) {
+			return true;
+		}
+
+		// Check if executable is in the safe set
+		if (!SAFE_READ_EXECUTABLES.has(executable)) return false;
+
+		// Git: check subcommand
+		if (executable === "git") {
+			const subcommand = argsAfterExec.find((t) => !t.startsWith("-"));
+			if (!subcommand || !SAFE_GIT_SUBCOMMANDS.has(subcommand)) return false;
+
+			// git config: reject mutation flags and set operations
+			if (subcommand === "config") {
+				if (argsAfterExec.some((t) => GIT_CONFIG_MUTATION_FLAGS.has(t))) return false;
+				// 3+ positional args after "config" means a set operation (key + value)
+				const positional = argsAfterExec.filter(
+					(t) => !t.startsWith("-") && t !== "config",
+				);
+				if (positional.length >= 2) return false;
+			}
+
+			// git stash: only allow "list" and "show"
+			if (subcommand === "stash") {
+				const stashAction = argsAfterExec.find(
+					(t) => !t.startsWith("-") && t !== "stash",
+				);
+				if (!stashAction || !["list", "show"].includes(stashAction)) return false;
+			}
+
+			// git worktree: only allow "list"
+			if (subcommand === "worktree") {
+				const worktreeAction = argsAfterExec.find(
+					(t) => !t.startsWith("-") && t !== "worktree",
+				);
+				if (worktreeAction !== "list") return false;
+			}
+		}
+
+		// sed: reject -i / --in-place
+		if (executable === "sed") {
+			if (
+				argsAfterExec.some(
+					(t) => t === "-i" || t === "--in-place" || t.startsWith("-i"),
+				)
+			)
+				return false;
+		}
+
+		// Check path scope: all non-flag positional arguments are resolved and
+		// verified to be within projectRoot or cwdPath. Bare filenames resolve
+		// relative to cwdPath (which is in-scope), but we check explicitly to
+		// be defensive. Known non-path arguments (e.g. grep patterns) are hard
+		// to distinguish from filenames, so we check them all — a pattern like
+		// "foo" resolves to cwdPath/foo which is in-scope, so this is safe.
+		const roots = [resolve(projectRoot), resolve(cwdPath)];
+		for (let i = execIndex + 1; i < fullTokens.length; i += 1) {
+			const token = fullTokens[i];
+			if (token.startsWith("-")) continue;
+			if (token.includes("=")) continue;
+			// For git subcommands, skip the subcommand token itself and
+			// non-path-like tokens (branch names, refs, patterns, etc.)
+			if (executable === "git") continue;
+			const resolved = isAbsolute(token) ? resolve(token) : resolve(cwdPath, token);
+			if (!roots.some((root) => this.isWithinRoot(resolved, root))) return false;
+		}
+
+		return true;
+	}
+
 	private async authorizeCommand(
 		params: PermissionAuthorizeParams,
 		command: string,
@@ -681,6 +909,15 @@ export class PermissionService {
 				reason: "Unable to parse command for permission check.",
 			};
 		}
+
+		// Auto-allow: all segments must be known read-only and in-scope
+		const allAutoAllowable = assessments.every((a) =>
+			this.isSegmentAutoAllowable(a, params.projectRoot, params.cwdPath),
+		);
+		if (allAutoAllowable) {
+			return { allow: true };
+		}
+
 		for (const assessment of assessments) {
 			const match = this.findMatchingCommandRule(
 				policy,

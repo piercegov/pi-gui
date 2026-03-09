@@ -259,4 +259,281 @@ describe("PermissionService", () => {
 			}),
 		).not.toThrow();
 	});
+
+	describe("auto-allow read-only in-scope commands", () => {
+		test("auto-allows ls without prompting", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "ls" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows cat with in-scope relative path", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cat src/file.ts" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows grep -r with in-scope path", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: 'grep -r "pattern" src/' },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows git status", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "git status" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows git log --oneline", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "git log --oneline" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows git diff", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "git diff HEAD~1" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows node --version", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "node --version" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows compound safe commands: pwd && echo hello", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "pwd && echo hello" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows pipeline of safe commands", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cat src/file.ts | grep pattern | wc -l" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows git config --get", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "git config --get user.email" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows sed without -i flag", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "sed -n 's/foo/bar/p' ./src/file.ts" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("prompts for cat with out-of-scope path", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cat /etc/hosts" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for sed -i (mutation flag)", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "sed -i 's/a/b/' ./src/file.ts" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for git push (write git subcommand)", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "git push origin main" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for curl (not in safe set)", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "curl https://example.com" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for mixed safe/unsafe compound: ls && rm file.txt", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "ls src/ && rm file.txt" },
+			});
+			// Should fall through to normal prompting since rm is unsafe
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "allow_once",
+			});
+			const prompt2 = await waitForPrompt(prompts, 1);
+			service.resolvePrompt({
+				promptId: prompt2.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for output redirection: grep foo > output.txt", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "grep foo > output.txt" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for grep with out-of-scope file argument", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "grep password /etc/passwd" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("auto-allows grep with bare pattern (no path arg)", async () => {
+			const { service, prompts, base } = createHarness();
+			// grep with just a pattern and no file - reads stdin, safe
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "echo test | grep pattern" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("prompts for sudo cat (sudo rejected)", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "sudo cat /etc/passwd" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+	});
 });
