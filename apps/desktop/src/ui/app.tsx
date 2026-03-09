@@ -393,7 +393,7 @@ export function App() {
 	}, [appendTerminalOutput, applyEvent, markStale, markTerminalExit, updateRevision, updateThread, upsertSummary]);
 
 	const resolvePermissionPrompt = useCallback(
-		(decision: PermissionPromptDecision, selectedScopeId?: string) => {
+		(decision: PermissionPromptDecision, selectedScopeId?: string, userMessage?: string) => {
 			const prompt = activePermissionPrompt;
 			if (!prompt) return;
 			setPermissionPrompts((current) => current.slice(1));
@@ -401,6 +401,7 @@ export function App() {
 				promptId: prompt.id,
 				decision,
 				selectedScopeId,
+				userMessage,
 			});
 		},
 		[activePermissionPrompt],

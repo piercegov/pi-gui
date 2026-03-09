@@ -390,6 +390,7 @@ export const permissionPromptResolutionSchema = z.object({
 	promptId: z.string(),
 	decision: permissionPromptDecisionSchema,
 	selectedScopeId: z.string().optional(),
+	userMessage: z.string().optional(),
 });
 
 export const sessionStreamEventSchema = z.discriminatedUnion("type", [

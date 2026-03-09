@@ -380,6 +380,7 @@ export interface PermissionPromptResolution {
 	promptId: string;
 	decision: PermissionPromptDecision;
 	selectedScopeId?: string;
+	userMessage?: string;
 }
 
 export type SessionStreamEvent =

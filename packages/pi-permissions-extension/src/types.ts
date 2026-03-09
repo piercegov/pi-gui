@@ -3,6 +3,7 @@ import type { ToolCallEvent } from "@mariozechner/pi-coding-agent";
 export interface PermissionDecision {
 	allow: boolean;
 	reason?: string;
+	userMessage?: string;
 }
 
 export interface PermissionToolCall {

@@ -32,6 +32,7 @@ type PermissionAuthorizeParams = {
 type PermissionAuthorizeResult = {
 	allow: boolean;
 	reason?: string;
+	userMessage?: string;
 };
 
 type CommandAssessment = {
@@ -753,6 +754,7 @@ export class PermissionService {
 			return {
 				allow,
 				reason: allow ? undefined : "Permission denied by user",
+				userMessage: allow ? undefined : resolution.userMessage,
 			};
 		}
 		const selectedScope =
@@ -769,6 +771,7 @@ export class PermissionService {
 		return {
 			allow,
 			reason: allow ? undefined : "Permission denied by user",
+			userMessage: allow ? undefined : resolution.userMessage,
 		};
 	}
 
@@ -956,6 +959,7 @@ export class PermissionService {
 					return {
 						allow: false,
 						reason: "Permission denied by user",
+						userMessage: resolution.userMessage,
 					};
 				}
 				continue;
@@ -971,6 +975,7 @@ export class PermissionService {
 				return {
 					allow: false,
 					reason: "Permission denied by user",
+					userMessage: resolution.userMessage,
 				};
 			}
 		}

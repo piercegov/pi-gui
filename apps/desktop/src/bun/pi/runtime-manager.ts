@@ -97,7 +97,7 @@ export class PiRuntimeManager {
 			toolCallId: string;
 			toolName: string;
 			input: Record<string, unknown>;
-		}): Promise<{ allow: boolean; reason?: string }>;
+		}): Promise<{ allow: boolean; reason?: string; userMessage?: string }>;
 	};
 
 	constructor(
@@ -704,7 +704,7 @@ export class PiRuntimeManager {
 						if (!this.permissionState) {
 							return { allow: true };
 						}
-						return this.permissionState.authorizeToolCall({
+						const result = await this.permissionState.authorizeToolCall({
 							sessionId: record.id,
 							projectId: record.project.id,
 							projectRoot: record.project.rootPath,
@@ -713,6 +713,24 @@ export class PiRuntimeManager {
 							toolName: event.toolName,
 							input: event.input,
 						});
+						if (!result.allow) {
+							const runtime = this.runtimes.get(record.id);
+							if (runtime) {
+								if (result.userMessage) {
+									// User denied with a message — steer the agent so it can adjust
+									queueMicrotask(() => {
+										this.emitUserMessage(runtime, record.id, result.userMessage!);
+										runtime.session.steer(result.userMessage!);
+									});
+								} else {
+									// User denied without a message — stop the agent
+									queueMicrotask(() => {
+										runtime.session.abort();
+									});
+								}
+							}
+						}
+						return result;
 					},
 				}),
 			],

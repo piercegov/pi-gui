@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
 	PermissionPathScopeOption,
 	PermissionPrompt,
@@ -13,14 +13,17 @@ function scopeLabel(scope: PermissionPathScopeOption) {
 export function PermissionPromptDialog(props: {
 	open: boolean;
 	prompt?: PermissionPrompt;
-	onResolve: (decision: PermissionPromptDecision, selectedScopeId?: string) => void;
+	onResolve: (decision: PermissionPromptDecision, selectedScopeId?: string, userMessage?: string) => void;
 }) {
 	const [selectedScopeId, setSelectedScopeId] = useState<string | undefined>(undefined);
+	const [denyMessage, setDenyMessage] = useState("");
+	const denyInputRef = useRef<HTMLTextAreaElement>(null);
 	const scopeOptions = props.prompt?.pathScopes ?? [];
 
 	useEffect(() => {
 		if (!props.open) return;
 		setSelectedScopeId(scopeOptions[0]?.id);
+		setDenyMessage("");
 	}, [props.open, props.prompt?.id, scopeOptions]);
 
 	const title = useMemo(() => {
@@ -35,7 +38,7 @@ export function PermissionPromptDialog(props: {
 			open={props.open}
 			onOpenChange={(open) => {
 				if (!open) {
-					props.onResolve("deny_once", selectedScopeId);
+					props.onResolve("deny_once", selectedScopeId, denyMessage.trim() || undefined);
 				}
 			}}
 		>
@@ -104,35 +107,56 @@ export function PermissionPromptDialog(props: {
 							</div>
 						) : null}
 					</div>
-					<div className="flex items-center justify-end gap-2 border-t border-surface-border px-5 py-3">
-						<button
-							type="button"
-							onClick={() => props.onResolve("deny_once", selectedScopeId)}
-							className="border border-surface-border px-3 py-1.5 text-xs text-white/60 transition hover:bg-white/5 hover:text-white/80"
-						>
-							Deny once
-						</button>
-						<button
-							type="button"
-							onClick={() => props.onResolve("deny_always", selectedScopeId)}
-							className="border border-state-error/30 bg-state-error/10 px-3 py-1.5 text-xs text-state-error transition hover:bg-state-error/20"
-						>
-							Always deny
-						</button>
-						<button
-							type="button"
-							onClick={() => props.onResolve("allow_once", selectedScopeId)}
-							className="border border-surface-border px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
-						>
-							Allow once
-						</button>
-						<button
-							type="button"
-							onClick={() => props.onResolve("allow_always", selectedScopeId)}
-							className="bg-accent px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110"
-						>
-							Always allow
-						</button>
+					<div className="border-t border-surface-border px-5 py-3 space-y-3">
+						<div className="space-y-1.5">
+							<label className="text-2xs uppercase tracking-wider text-white/35">
+								Deny with message <span className="normal-case tracking-normal text-white/25">(optional — leave empty to stop the agent)</span>
+							</label>
+							<textarea
+								ref={denyInputRef}
+								value={denyMessage}
+								onChange={(e) => setDenyMessage(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" && !e.shiftKey) {
+										e.preventDefault();
+										props.onResolve("deny_once", selectedScopeId, denyMessage.trim() || undefined);
+									}
+								}}
+								placeholder="e.g. Try a different approach instead..."
+								className="w-full resize-none border border-surface-border bg-surface-0 px-3 py-2 text-xs text-white/80 placeholder:text-white/25 focus:border-white/20 focus:outline-none"
+								rows={2}
+							/>
+						</div>
+						<div className="flex items-center justify-end gap-2">
+							<button
+								type="button"
+								onClick={() => props.onResolve("deny_once", selectedScopeId, denyMessage.trim() || undefined)}
+								className="border border-surface-border px-3 py-1.5 text-xs text-white/60 transition hover:bg-white/5 hover:text-white/80"
+							>
+								{denyMessage.trim() ? "Deny & redirect" : "Deny & stop"}
+							</button>
+							<button
+								type="button"
+								onClick={() => props.onResolve("deny_always", selectedScopeId, denyMessage.trim() || undefined)}
+								className="border border-state-error/30 bg-state-error/10 px-3 py-1.5 text-xs text-state-error transition hover:bg-state-error/20"
+							>
+								Always deny
+							</button>
+							<button
+								type="button"
+								onClick={() => props.onResolve("allow_once", selectedScopeId)}
+								className="border border-surface-border px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
+							>
+								Allow once
+							</button>
+							<button
+								type="button"
+								onClick={() => props.onResolve("allow_always", selectedScopeId)}
+								className="bg-accent px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110"
+							>
+								Always allow
+							</button>
+						</div>
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>
