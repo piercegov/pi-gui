@@ -461,10 +461,23 @@ const titleBarStyle =
 			? "hidden"
 			: "default";
 
+function shouldUseCEF(): boolean {
+	if (process.platform === "linux") return true;
+	if (process.env.USE_CEF === "1") return true;
+	// Detect if CEF was bundled by checking for the framework in the app bundle
+	if (process.platform === "darwin") {
+		const { existsSync } = require("node:fs");
+		// Bun entrypoint is at Contents/Resources/app/bun/, framework is at Contents/Frameworks/
+		const cefPath = `${import.meta.dir}/../../../Frameworks/Chromium Embedded Framework.framework`;
+		return existsSync(cefPath);
+	}
+	return false;
+}
+
 new BrowserWindow({
 	title: "Pi GUI",
 	url,
-	renderer: (process.platform === "linux" || process.env.USE_CEF === "1") ? "cef" : undefined,
+	renderer: shouldUseCEF() ? "cef" : undefined,
 	frame: {
 		width: 1480,
 		height: 960,
