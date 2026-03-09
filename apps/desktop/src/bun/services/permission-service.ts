@@ -354,7 +354,8 @@ export class PermissionService {
 		let inSingle = false;
 		let inDouble = false;
 		let escaped = false;
-		for (const char of command) {
+		for (let index = 0; index < command.length; index += 1) {
+			const char = command[index];
 			if (escaped) {
 				current += char;
 				escaped = false;
@@ -374,11 +375,27 @@ export class PermissionService {
 				current += char;
 				continue;
 			}
-			if (!inSingle && !inDouble && (char === ";" || char === "|" || char === "\n")) {
-				const trimmed = current.trim();
-				if (trimmed) segments.push(trimmed);
-				current = "";
-				continue;
+			if (!inSingle && !inDouble) {
+				const next = command[index + 1];
+				if (char === ";" || char === "\n") {
+					const trimmed = current.trim();
+					if (trimmed) segments.push(trimmed);
+					current = "";
+					continue;
+				}
+				if ((char === "|" && next === "|") || (char === "&" && next === "&")) {
+					const trimmed = current.trim();
+					if (trimmed) segments.push(trimmed);
+					current = "";
+					index += 1;
+					continue;
+				}
+				if (char === "|" || char === "&") {
+					const trimmed = current.trim();
+					if (trimmed) segments.push(trimmed);
+					current = "";
+					continue;
+				}
 			}
 			current += char;
 		}
@@ -387,52 +404,38 @@ export class PermissionService {
 		return segments;
 	}
 
-	private tokenizeSegment(segment: string) {
-		const tokens: string[] = [];
-		let current = "";
-		let inSingle = false;
-		let inDouble = false;
-		let escaped = false;
-		for (const char of segment) {
-			if (escaped) {
-				current += char;
-				escaped = false;
-				continue;
-			}
-			if (char === "\\" && !inSingle) {
-				escaped = true;
-				continue;
-			}
-			if (char === "'" && !inDouble) {
-				inSingle = !inSingle;
-				continue;
-			}
-			if (char === '"' && !inSingle) {
-				inDouble = !inDouble;
-				continue;
-			}
-			if (!inSingle && !inDouble && /\s/.test(char)) {
-				if (current) {
-					tokens.push(current);
-					current = "";
-				}
-				continue;
-			}
-			current += char;
+	private firstExecutableToken(tokens: string[]) {
+		let index = 0;
+		while (index < tokens.length && tokens[index].includes("=")) {
+			index += 1;
 		}
-		if (current) tokens.push(current);
-		return tokens;
+		if (tokens[index] === "sudo") {
+			index += 1;
+			while (index < tokens.length && tokens[index].startsWith("-")) {
+				index += 1;
+			}
+		}
+		return index < tokens.length ? index : -1;
 	}
 
 	private extractCommandSignature(tokens: string[]) {
 		if (tokens.length === 0) return [];
-		const signature = [tokens[0].split(/[\\/]/).at(-1)?.toLowerCase() ?? tokens[0].toLowerCase()];
-		for (let index = 1; index < tokens.length && signature.length < 3; index += 1) {
+		const executableIndex = this.firstExecutableToken(tokens);
+		if (executableIndex < 0) return [];
+		const executable = tokens[executableIndex];
+		const signature = [
+			executable.split(/[\\/]/).at(-1)?.toLowerCase() ?? executable.toLowerCase(),
+		];
+		for (
+			let index = executableIndex + 1;
+			index < tokens.length && signature.length < 3;
+			index += 1
+		) {
 			const token = tokens[index];
 			if (!token) break;
-			if (token.startsWith("-")) break;
-			if (token.includes("=")) break;
-			if (token.includes("/") || token.includes(":")) break;
+			if (token.startsWith("-")) continue;
+			if (token.includes("=")) continue;
+			if (token.includes("/") || token.includes(":")) continue;
 			signature.push(token.toLowerCase());
 		}
 		return signature;
@@ -476,6 +479,44 @@ export class PermissionService {
 		}
 		return assessments;
 	}
+
+	private tokenizeSegment(segment: string) {
+		const tokens: string[] = [];
+		let current = "";
+		let inSingle = false;
+		let inDouble = false;
+		let escaped = false;
+		for (const char of segment) {
+			if (escaped) {
+				current += char;
+				escaped = false;
+				continue;
+			}
+			if (char === "\\" && !inSingle) {
+				escaped = true;
+				continue;
+			}
+			if (char === "'" && !inDouble) {
+				inSingle = !inSingle;
+				continue;
+			}
+			if (char === '"' && !inSingle) {
+				inDouble = !inDouble;
+				continue;
+			}
+			if (!inSingle && !inDouble && /\s/.test(char)) {
+				if (current) {
+					tokens.push(current);
+					current = "";
+				}
+				continue;
+			}
+			current += char;
+		}
+		if (current) tokens.push(current);
+		return tokens;
+	}
+
 
 	private findMatchingCommandRule(
 		policy: ProjectPermissionPolicy,
