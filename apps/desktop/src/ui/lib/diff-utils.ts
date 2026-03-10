@@ -1,29 +1,13 @@
 import type { CommentAnchor, CommentThreadView, DiffSnapshotView } from "@shared/models";
 import type { ChangeData, FileData, HunkData } from "react-diff-view";
-import { getChangeKey } from "react-diff-view";
+import { computeNewLineNumber, computeOldLineNumber, getChangeKey } from "react-diff-view";
 
 function stripPrefix(content: string) {
 	return content.replace(/^[ +-]/, "");
 }
 
-function newLineValue(change: ChangeData) {
-	if ("lineNumber" in change) {
-		return change.lineNumber ?? -1;
-	}
-	if ("oldLineNumber" in change) {
-		return change.oldLineNumber ?? -1;
-	}
-	return -1;
-}
-
-function oldLineValue(change: ChangeData) {
-	if ("oldLineNumber" in change) {
-		return change.oldLineNumber ?? -1;
-	}
-	if ("lineNumber" in change) {
-		return change.lineNumber ?? -1;
-	}
-	return -1;
+function lineValue(change: ChangeData, side: "old" | "new") {
+	return side === "old" ? computeOldLineNumber(change) : computeNewLineNumber(change);
 }
 
 export function createAnchorFromChange(params: {
@@ -45,7 +29,7 @@ export function createAnchorFromChange(params: {
 	return {
 		filePath: file.newPath || file.oldPath,
 		side: isOldSide ? "old" : "new",
-		line: isOldSide ? oldLineValue(change) : newLineValue(change),
+		line: lineValue(change, isOldSide ? "old" : "new"),
 		hunkHeader: hunk.content,
 		beforeContext,
 		targetLineText: stripPrefix(change.content),
@@ -57,10 +41,8 @@ export function createAnchorFromChange(params: {
 }
 
 export function threadMatchesChange(thread: CommentThreadView, change: ChangeData) {
-	if (thread.anchor.side === "old") {
-		return thread.anchor.line === oldLineValue(change);
-	}
-	return thread.anchor.line === newLineValue(change);
+	const changeLine = lineValue(change, thread.anchor.side);
+	return changeLine >= 0 && thread.anchor.line === changeLine;
 }
 
 export function createThreadWidgetMap(params: {

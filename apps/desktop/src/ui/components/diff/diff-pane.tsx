@@ -1,5 +1,7 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
+	computeNewLineNumber,
+	computeOldLineNumber,
 	Diff,
 	getChangeKey,
 	Hunk,
@@ -516,16 +518,7 @@ function InlineThread(props: {
 }
 
 function lineValue(change: ChangeData, side: "old" | "new") {
-	if (side === "old" && "oldLineNumber" in change) {
-		return change.oldLineNumber ?? -1;
-	}
-	if ("lineNumber" in change) {
-		return change.lineNumber ?? -1;
-	}
-	if ("oldLineNumber" in change) {
-		return change.oldLineNumber ?? -1;
-	}
-	return -1;
+	return side === "old" ? computeOldLineNumber(change) : computeNewLineNumber(change);
 }
 
 function threadLookupKey(filePath: string, side: "old" | "new", line: number) {
@@ -1347,14 +1340,8 @@ function DiffPaneComponent(props: DiffPaneProps) {
 
 		for (const hunk of file.hunks) {
 			for (const change of hunk.changes) {
-				let line: number | undefined;
-				if (selectionPopup.side === "old" && "oldLineNumber" in change) {
-					line = change.oldLineNumber as number;
-				} else if (selectionPopup.side === "new") {
-					if ("lineNumber" in change) line = change.lineNumber as number;
-					else if ("oldLineNumber" in change)
-						line = change.oldLineNumber as number;
-				}
+				const line = lineValue(change, selectionPopup.side);
+				if (line < 0) continue;
 				if (line === selectionPopup.lineNumber) {
 					setDraftAnchor(
 						createAnchorFromChange({
