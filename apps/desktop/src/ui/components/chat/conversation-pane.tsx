@@ -258,6 +258,7 @@ function badge(session?: SessionSummary) {
 
 function ChatInput(props: {
 	busy: boolean;
+	placeholder?: string;
 	onSendPrompt: (text: string) => Promise<void>;
 	onSteer: (text: string) => Promise<void>;
 	onFollowUp: (text: string) => Promise<void>;
@@ -287,7 +288,7 @@ function ChatInput(props: {
 						}
 					}}
 					rows={3}
-					placeholder="Ask for follow-up changes..."
+					placeholder={props.placeholder ?? "Ask for follow-up changes..."}
 					className="w-full resize-none border border-surface-border bg-surface-2 px-3 py-2 text-xs text-white/90 placeholder:text-white/25 outline-none transition focus:border-accent/40"
 				/>
 				<div className="mt-2 flex items-center justify-between">
@@ -492,6 +493,11 @@ export const ConversationPane = memo(function ConversationPane(props: {
 		);
 	}
 
+	const inputPlaceholder =
+		typeof props.session.metadata.mockWorkflowLabel === "string"
+			? "Replay the mock workflow with another prompt..."
+			: "Ask for follow-up changes...";
+
 	return (
 		<section className="flex h-full flex-col bg-surface-1">
 			<ConversationContent
@@ -500,6 +506,7 @@ export const ConversationPane = memo(function ConversationPane(props: {
 			/>
 			<ChatInput
 				busy={props.session.status === "running"}
+				placeholder={inputPlaceholder}
 				onSendPrompt={props.onSendPrompt}
 				onSteer={props.onSteer}
 				onFollowUp={props.onFollowUp}

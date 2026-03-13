@@ -19,6 +19,10 @@ export const TitleBar = memo(function TitleBar(props: {
 	onOpenSettings: () => void;
 	supportsEmbeddedTerminal: boolean;
 }) {
+	const mockWorkflowLabel =
+		typeof props.session?.metadata.mockWorkflowLabel === "string"
+			? props.session.metadata.mockWorkflowLabel
+			: undefined;
 	return (
 		<header className="relative flex h-11 shrink-0 items-center justify-between border-b border-surface-border bg-surface-1 px-3">
 			<div className="electrobun-webkit-app-region-drag absolute inset-0" />
@@ -34,6 +38,11 @@ export const TitleBar = memo(function TitleBar(props: {
 							{props.session.displayName}
 						</span>
 						<span className="text-2xs text-white/30">{props.session.mode}</span>
+						{mockWorkflowLabel ? (
+							<span className="border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wider text-accent">
+								{mockWorkflowLabel}
+							</span>
+						) : null}
 					</>
 				) : null}
 			</div>

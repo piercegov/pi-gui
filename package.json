@@ -11,6 +11,8 @@
     "start": "bun run prebuild:providers && vite build && electrobun dev",
     "dev": "bun run prebuild:providers && electrobun dev --watch",
     "dev:hmr": "bun run prebuild:providers && concurrently \"bun run hmr\" \"electrobun dev --watch\"",
+    "dev:mock": "PI_GUI_MOCK_WORKFLOW=cursor-cloud-demo bun run dev",
+    "dev:hmr:mock": "PI_GUI_MOCK_WORKFLOW=cursor-cloud-demo bun run dev:hmr",
     "hmr": "vite --port 5173",
     "build": "bun run prebuild:providers && vite build && electrobun build",
     "build:canary": "bun run prebuild:providers && vite build && electrobun build --env=canary",
@@ -18,7 +20,8 @@
     "dev:hmr:cef": "USE_CEF=1 bun run dev:hmr",
     "build:cef": "USE_CEF=1 bun run build",
     "typecheck": "bunx tsc --noEmit",
-    "test:permissions": "bun test apps/desktop/src/bun/services/permission-service.test.ts packages/pi-permissions-extension/src/index.test.ts"
+    "test:permissions": "bun test apps/desktop/src/bun/services/permission-service.test.ts packages/pi-permissions-extension/src/index.test.ts",
+    "test:mock-workflow": "bun test apps/desktop/src/bun/services/mock-workflow-service.test.ts"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "0.57.1",
