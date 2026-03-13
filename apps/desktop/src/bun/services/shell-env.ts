@@ -11,6 +11,7 @@
  */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const ENV_CAPTURE_SENTINEL = "__PI_ENV_START__";
 
 function parseEnvNul(raw: string): Record<string, string> {
 	const env: Record<string, string> = {};
@@ -23,6 +24,33 @@ function parseEnvNul(raw: string): Record<string, string> {
 	return env;
 }
 
+function shellBasename(shell: string) {
+	const trimmed = shell.trim();
+	if (!trimmed) return "";
+	const parts = trimmed.split("/");
+	return parts[parts.length - 1] ?? trimmed;
+}
+
+function buildEnvCaptureCommand(shell: string) {
+	const shellName = shellBasename(shell);
+	if (shellName === "zsh" || shellName === "bash") {
+		return [
+			shell,
+			"-i",
+			"-l",
+			"-c",
+			`printf '%s\\0' '${ENV_CAPTURE_SENTINEL}'; env -0`,
+		];
+	}
+	return [shell, "-l", "-c", "env -0"];
+}
+
+function extractCapturedEnv(raw: string) {
+	const marker = `${ENV_CAPTURE_SENTINEL}\0`;
+	const markerIndex = raw.indexOf(marker);
+	return markerIndex === -1 ? raw : raw.slice(markerIndex + marker.length);
+}
+
 export async function resolveShellEnvironment(
 	timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<void> {
@@ -31,7 +59,7 @@ export async function resolveShellEnvironment(
 	const shell = process.env.SHELL ?? "/bin/zsh";
 
 	try {
-		const proc = Bun.spawn([shell, "-l", "-c", "env -0"], {
+		const proc = Bun.spawn(buildEnvCaptureCommand(shell), {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
@@ -60,7 +88,7 @@ export async function resolveShellEnvironment(
 			return;
 		}
 
-		const stdout = await new Response(proc.stdout).text();
+		const stdout = extractCapturedEnv(await new Response(proc.stdout).text());
 		if (!stdout) {
 			console.warn("[shell-env] Login shell produced no output — using default environment");
 			return;
