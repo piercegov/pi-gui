@@ -63,6 +63,8 @@ From repo root:
 bun install
 bun run dev:hmr      # recommended: Vite HMR + electrobun dev --watch
 bun run dev          # no HMR; bundled assets path
+bun run dev:mock     # seeded mock workflow for cloud-agent demo recordings
+bun run dev:hmr:mock # same mock workflow with Vite HMR
 bun run build        # production build
 bun run build:canary # canary environment build
 bun run typecheck    # bunx tsc --noEmit
@@ -72,7 +74,24 @@ Useful extra checks:
 
 ```bash
 npx vite build       # frontend-only build
+bun run test:mock-workflow
 ```
+
+### Mock workflow for cloud-agent demos
+
+When you need a deterministic end-to-end demo without real model credentials, launch the app with:
+
+```bash
+PI_GUI_MOCK_WORKFLOW=cursor-cloud-demo bun run dev
+```
+
+or use `bun run dev:mock` / `bun run dev:hmr:mock`.
+
+Important:
+
+- this workflow is intentionally gated behind the `PI_GUI_MOCK_WORKFLOW` env var
+- it is for agent/debug/demo use only
+- normal `dev`, `dev:hmr`, and production builds should not expose it
 
 No test runner and no lint/format pipeline are configured.
 
@@ -343,6 +362,7 @@ bun run build
 Manual smoke:
 
 - open app (`bun run dev:hmr`)
+- for cloud-agent demo recordings, prefer `bun run dev:mock` or `bun run dev:hmr:mock`
 - add/select project
 - create/open session
 - send prompt and observe streaming

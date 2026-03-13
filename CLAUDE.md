@@ -8,12 +8,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bun install                # Install dependencies
 bun run dev:hmr            # Development with HMR (recommended) - runs Vite dev server + Electrobun
 bun run dev                # Development without HMR (loads bundled assets, must rebuild to see changes)
+bun run dev:mock           # Seeded mock workflow for cloud-agent demo recordings
+bun run dev:hmr:mock       # Same mock workflow with HMR
 bun run build              # Production build (vite build + electrobun build)
 bunx tsc --noEmit          # Typecheck (also: bun run typecheck)
 npx vite build             # Frontend-only build (useful for quick validation)
 ```
 
 No test runner is configured. No linter/formatter is configured.
+
+## Mock workflow for cloud-agent demos
+
+When you need a deterministic end-to-end demo without real model credentials, launch the app with:
+
+```bash
+PI_GUI_MOCK_WORKFLOW=cursor-cloud-demo bun run dev
+```
+
+or use `bun run dev:mock` / `bun run dev:hmr:mock`.
+
+Important:
+
+- this workflow is intentionally gated behind the `PI_GUI_MOCK_WORKFLOW` env var
+- it is for agent/debug/demo use only
+- normal `dev`, `dev:hmr`, and production builds should not expose it
 
 ## Architecture Overview
 
