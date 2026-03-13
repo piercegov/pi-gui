@@ -15,6 +15,7 @@ import { CheckpointService, type CheckpointRecord } from "./checkpoint-service";
 import { AppDb } from "./db";
 import { GitService } from "./git-service";
 import type { HostMessenger } from "./host-messenger";
+import type { MockWorkflowService } from "./mock-workflow-service";
 import { ProjectService } from "./project-service";
 import { ReviewService } from "./review-service";
 import { SettingsService } from "./settings-service";
@@ -52,6 +53,7 @@ export class SessionService {
 		private readonly settings: SettingsService,
 		private readonly runtime: PiRuntimeManager,
 		private readonly messenger: HostMessenger,
+		private readonly mockWorkflow?: MockWorkflowService,
 	) {}
 
 	private parseMetadata(json: string | null) {
@@ -119,11 +121,18 @@ export class SessionService {
 	}
 
 	async getSessionSummary(sessionId: string) {
+		const mockSummary = this.mockWorkflow?.getSessionSummary(sessionId);
+		if (mockSummary) return mockSummary;
 		const row = this.getSessionRow(sessionId);
 		return row ? this.toSummary(row) : null;
 	}
 
 	async listSessions(projectId: string) {
+		const mockSessions = this.mockWorkflow?.listSessions(
+			projectId,
+			this.settings.getAppSettings().showArchived,
+		);
+		if (mockSessions) return mockSessions;
 		const rows = this.db.all<SessionRow>(
 			`
 			select
@@ -146,6 +155,8 @@ export class SessionService {
 	}
 
 	async getModelCatalog(projectId: string): Promise<ModelCatalogSummary> {
+		const mockCatalog = this.mockWorkflow?.getModelCatalog(projectId);
+		if (mockCatalog) return mockCatalog;
 		const project = this.getProjectOrThrow(projectId);
 		return this.runtime.getModelCatalog(project.rootPath);
 	}
@@ -170,6 +181,7 @@ export class SessionService {
 			lastError?: string;
 		},
 	) {
+		if (this.mockWorkflow?.isMockSession(sessionId)) return;
 		const row = this.getSessionRow(sessionId);
 		if (!row) return;
 		const metadata = this.parseMetadata(row.metadata_json);
@@ -212,6 +224,7 @@ export class SessionService {
 	}
 
 	private async refreshGitStatus(sessionId: string) {
+		if (this.mockWorkflow?.isMockSession(sessionId)) return;
 		const row = this.getSessionRow(sessionId);
 		if (!row) return;
 		const metadata = this.parseMetadata(row.metadata_json);
@@ -238,6 +251,9 @@ export class SessionService {
 	}
 
 	private async ensureRuntime(sessionId: string) {
+		if (this.mockWorkflow?.isMockSession(sessionId)) {
+			throw new Error("Mock workflow sessions do not use the live runtime.");
+		}
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
 		const project = this.getProjectOrThrow(row.project_id);
@@ -279,6 +295,11 @@ export class SessionService {
 		modelProvider?: string;
 		modelId?: string;
 	}) {
+		const mockSession = this.mockWorkflow?.createSession({
+			projectId: params.projectId,
+			name: params.name,
+		});
+		if (mockSession) return mockSession;
 		const project = this.getProjectOrThrow(params.projectId);
 		const settings = this.settings.getAppSettings();
 		const sessionId = crypto.randomUUID();
@@ -385,6 +406,13 @@ export class SessionService {
 	}
 
 	async openSession(sessionId: string): Promise<SessionHydration> {
+		const mockHydration = this.mockWorkflow?.openSession(
+			sessionId,
+			this.settings.getAppSettings(),
+		);
+		if (mockHydration) {
+			return mockHydration;
+		}
 		const row = await this.ensureRuntime(sessionId);
 		const project = this.getProjectOrThrow(row.project_id);
 		await this.refreshGitStatus(sessionId);
@@ -435,6 +463,8 @@ export class SessionService {
 	}
 
 	async buildSessionDiff(sessionId: string): Promise<DiffSnapshotView | undefined> {
+		const mockDiff = this.mockWorkflow?.buildSessionDiff(sessionId);
+		if (mockDiff) return mockDiff;
 		const row = this.getSessionRow(sessionId);
 		if (!row) return undefined;
 		const baseline = this.checkpoints.getLatestCheckpoint(sessionId, "baseline");
@@ -462,10 +492,18 @@ export class SessionService {
 	}
 
 	async buildRevisionDiff(sessionId: string, revisionNumber: number, mode: DiffMode) {
+		const mockDiff = this.mockWorkflow?.buildRevisionDiff(
+			sessionId,
+			revisionNumber,
+			mode,
+		);
+		if (mockDiff) return mockDiff;
 		return this.review.buildRevisionDiff(sessionId, revisionNumber, mode);
 	}
 
 	async getSessionInspector(sessionId: string): Promise<SessionInspectorView> {
+		const mockInspector = this.mockWorkflow?.getSessionInspector(sessionId);
+		if (mockInspector) return mockInspector;
 		const row = await this.ensureRuntime(sessionId);
 		await this.refreshGitStatus(sessionId);
 		const summary = await this.getSessionSummary(sessionId);
@@ -492,6 +530,9 @@ export class SessionService {
 	}
 
 	async renameSession(sessionId: string, name: string) {
+		if (this.mockWorkflow?.renameSession(sessionId, name)) {
+			return;
+		}
 		this.db.run(
 			"update sessions set display_name = ?, last_activity_at = ? where id = ?",
 			name,
@@ -503,6 +544,9 @@ export class SessionService {
 	}
 
 	async archiveSession(sessionId: string, archived: boolean) {
+		if (this.mockWorkflow?.archiveSession(sessionId, archived)) {
+			return;
+		}
 		this.db.run(
 			"update sessions set archived_at = ?, status = ?, last_activity_at = ? where id = ?",
 			archived ? Date.now() : null,
@@ -513,6 +557,9 @@ export class SessionService {
 	}
 
 	async repairSessionWorktree(sessionId: string) {
+		if (this.mockWorkflow?.repairWorktree(sessionId)) {
+			return;
+		}
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
 		if (row.mode !== "worktree" || !row.worktree_path || !row.worktree_branch) {
@@ -535,26 +582,41 @@ export class SessionService {
 	}
 
 	async abortSession(sessionId: string) {
+		if (this.mockWorkflow?.abort(sessionId)) {
+			return;
+		}
 		await this.runtime.abortSession(sessionId);
 		await this.updateRuntimeStatus(sessionId, { status: "idle" });
 	}
 
 	async sendPrompt(sessionId: string, text: string) {
+		if (await this.mockWorkflow?.replay(sessionId, { promptText: text })) {
+			return;
+		}
 		await this.ensureRuntime(sessionId);
 		await this.runtime.sendPrompt(sessionId, text);
 	}
 
 	async steerSession(sessionId: string, text: string) {
+		if (await this.mockWorkflow?.replay(sessionId, { promptText: text })) {
+			return;
+		}
 		await this.ensureRuntime(sessionId);
 		await this.runtime.steerSession(sessionId, text);
 	}
 
 	async followUpSession(sessionId: string, text: string) {
+		if (await this.mockWorkflow?.replay(sessionId, { promptText: text })) {
+			return;
+		}
 		await this.ensureRuntime(sessionId);
 		await this.runtime.followUpSession(sessionId, text);
 	}
 
 	async restoreCheckpoint(sessionId: string, checkpointId: string) {
+		if (this.mockWorkflow?.restoreCheckpoint(sessionId, checkpointId)) {
+			return;
+		}
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
 		if (row.status === "running" || row.status === "applying") {
@@ -583,6 +645,19 @@ export class SessionService {
 	}
 
 	async createManualCheckpoint(sessionId: string) {
+		const mockCheckpoint = this.mockWorkflow?.createManualCheckpoint(sessionId);
+		if (mockCheckpoint) {
+			this.messenger.toast({
+				id: crypto.randomUUID(),
+				title: "Manual checkpoint saved",
+				description: new Date(mockCheckpoint.createdAt).toLocaleTimeString([], {
+					hour: "numeric",
+					minute: "2-digit",
+				}),
+				variant: "success",
+			});
+			return mockCheckpoint;
+		}
 		const row = this.getSessionRow(sessionId);
 		if (!row) throw new Error("Session not found.");
 		if (!(await this.git.isGitRepo(row.cwd_path))) {
