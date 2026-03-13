@@ -148,7 +148,7 @@ function makeRevision(sessionId: string, diffId: string, checkpointId: string): 
 				anchor: {
 					filePath: "apps/desktop/src/ui/app.tsx",
 					side: "new",
-					line: 186,
+					line: 183,
 					hunkHeader: "@@ -182,10 +182,15 @@ export function App() {",
 					beforeContext: [
 						"\tconst [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);",
