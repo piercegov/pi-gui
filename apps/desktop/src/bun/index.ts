@@ -40,6 +40,11 @@ import { SessionService } from "./services/session-service";
 import { TerminalService } from "./services/terminal-service";
 import type { HostMessenger } from "./services/host-messenger";
 import { PermissionService } from "./services/permission-service";
+import {
+	CURSOR_CLOUD_DEMO_WORKFLOW_ID,
+	MOCK_WORKFLOW_ENV_VAR,
+	MockWorkflowService,
+} from "./services/mock-workflow-service";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -60,6 +65,11 @@ async function getMainViewUrl(): Promise<string> {
 const db = new AppDb();
 const git = new GitService();
 const settings = new SettingsService(db);
+const appChannel = await Updater.localInfo.channel();
+const enabledMockWorkflowId =
+	appChannel === "dev"
+		? process.env[MOCK_WORKFLOW_ENV_VAR]?.trim() || undefined
+		: undefined;
 
 // Resolve the user's full shell environment before initializing remaining services.
 // macOS GUI apps receive a minimal PATH from launchd; this captures the real
@@ -67,7 +77,6 @@ const settings = new SettingsService(db);
 // Homebrew binaries are available to all spawned processes.
 await resolveShellEnvironment(settings.getAppSettings().shellEnvTimeoutMs);
 
-const projects = new ProjectService(db, git);
 let rpc = null as unknown as ReturnType<typeof defineElectrobunRPC<AppRpcSchema>>;
 const sendToView = (
 	message: keyof AppRpcSchema["webview"]["messages"],
@@ -114,6 +123,14 @@ const messenger: HostMessenger = {
 	},
 };
 
+const mockWorkflow = new MockWorkflowService({
+	messenger,
+	enabledWorkflowId:
+		enabledMockWorkflowId === CURSOR_CLOUD_DEMO_WORKFLOW_ID
+			? enabledMockWorkflowId
+			: undefined,
+});
+const projects = new ProjectService(db, git, mockWorkflow);
 const checkpoints = new CheckpointService(db, git);
 const review = new ReviewService(db, checkpoints, git, messenger);
 const runtime = new PiRuntimeManager(messenger, settings);
@@ -127,6 +144,7 @@ const sessions = new SessionService(
 	settings,
 	runtime,
 	messenger,
+	mockWorkflow,
 );
 const terminals = new TerminalService(messenger);
 

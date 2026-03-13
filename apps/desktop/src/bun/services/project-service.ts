@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import type { ProjectSummary } from "../../shared/models";
 import { AppDb } from "./db";
 import { GitService } from "./git-service";
+import type { MockWorkflowService } from "./mock-workflow-service";
 
 type ProjectRow = {
 	id: string;
@@ -19,6 +20,7 @@ export class ProjectService {
 	constructor(
 		private readonly db: AppDb,
 		private readonly git: GitService,
+		private readonly mockWorkflow?: MockWorkflowService,
 	) {}
 
 	private toSummary(row: ProjectRow): ProjectSummary {
@@ -55,10 +57,13 @@ export class ProjectService {
 			order by coalesce(p.last_opened_at, 0) desc, p.name asc
 			`,
 		);
-		return rows.map((row) => this.toSummary(row));
+		const summaries = rows.map((row) => this.toSummary(row));
+		return this.mockWorkflow?.listProjects(summaries) ?? summaries;
 	}
 
 	getProject(projectId: string) {
+		const mockProject = this.mockWorkflow?.getProject(projectId);
+		if (mockProject) return mockProject;
 		const row = this.db.get<ProjectRow>(
 			`
 			select
@@ -117,10 +122,12 @@ export class ProjectService {
 	}
 
 	removeProject(projectId: string) {
+		if (this.mockWorkflow?.isMockProject(projectId)) return;
 		this.db.run("delete from projects where id = ?", projectId);
 	}
 
 	markOpened(projectId: string) {
+		if (this.mockWorkflow?.isMockProject(projectId)) return;
 		this.db.run(
 			"update projects set last_opened_at = ? where id = ?",
 			Date.now(),
@@ -129,6 +136,7 @@ export class ProjectService {
 	}
 
 	updateDefaultBaseRef(projectId: string, baseRef?: string) {
+		if (this.mockWorkflow?.isMockProject(projectId)) return;
 		this.db.run(
 			"update projects set default_base_ref = ? where id = ?",
 			baseRef ?? null,
@@ -137,6 +145,16 @@ export class ProjectService {
 	}
 
 	updateProjectMetadata(projectId: string, patch: Record<string, unknown>) {
+		const mockProject = this.mockWorkflow?.getProject(projectId);
+		if (mockProject) {
+			return {
+				...mockProject,
+				metadata: {
+					...mockProject.metadata,
+					...patch,
+				},
+			};
+		}
 		const existing = this.db.get<{ metadata_json: string }>(
 			"select metadata_json from projects where id = ?",
 			projectId,
