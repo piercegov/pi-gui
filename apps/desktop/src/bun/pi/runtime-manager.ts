@@ -69,6 +69,7 @@ type ManagedRuntime = {
 	unsubscribe: () => void;
 	resourceLoader: DefaultResourceLoader;
 	toolActivity: ToolActivityView[];
+	toolInputsByCallId: Map<string, Record<string, unknown>>;
 	lastAssistantId?: string;
 	lastMessageIndex?: number;
 	nextTurnIndex?: number;
@@ -117,11 +118,58 @@ export class PiRuntimeManager {
 		this.permissionState = bridge;
 	}
 
+	private normalizeToolInput(
+		toolInput: unknown,
+	): Record<string, unknown> | undefined {
+		if (!toolInput || typeof toolInput !== "object" || Array.isArray(toolInput)) {
+			return undefined;
+		}
+		return toolInput as Record<string, unknown>;
+	}
+
+	private rememberToolInput(
+		toolInputsByCallId: Map<string, Record<string, unknown>>,
+		toolCallId: string,
+		toolInput: unknown,
+	) {
+		const normalizedInput = this.normalizeToolInput(toolInput);
+		if (!normalizedInput) return;
+		const existingInput = toolInputsByCallId.get(toolCallId);
+		if (
+			existingInput &&
+			Object.keys(existingInput).length > 0 &&
+			Object.keys(normalizedInput).length === 0
+		) {
+			return;
+		}
+		toolInputsByCallId.set(toolCallId, normalizedInput);
+	}
+
+	private rememberToolInputsFromMessage(
+		toolInputsByCallId: Map<string, Record<string, unknown>>,
+		message: AgentSession["messages"][number],
+	) {
+		if (!("role" in message) || message.role !== "assistant") return;
+		for (const part of message.content) {
+			if (part.type === "toolCall") {
+				this.rememberToolInput(toolInputsByCallId, part.id, part.arguments);
+			}
+		}
+	}
+
+	private getToolInput(
+		toolInputsByCallId: Map<string, Record<string, unknown>> | undefined,
+		toolCallId: string | undefined,
+	) {
+		if (!toolInputsByCallId || !toolCallId) return undefined;
+		return toolInputsByCallId.get(toolCallId);
+	}
+
 	private mapConversationMessage(
 		sessionId: string,
 		message: AgentSession["messages"][number],
 		index: number,
-		toolCallArgs?: Map<string, Record<string, unknown>>,
+		toolInputsByCallId?: Map<string, Record<string, unknown>>,
 	): ConversationEntryView | null {
 		if ("role" in message) {
 			if (message.role === "user") {
@@ -142,6 +190,9 @@ export class PiRuntimeManager {
 				};
 			}
 			if (message.role === "assistant") {
+				if (toolInputsByCallId) {
+					this.rememberToolInputsFromMessage(toolInputsByCallId, message);
+				}
 				const markdown = message.content
 					.filter((part) => part.type === "text")
 					.map((part) => part.text)
@@ -181,7 +232,7 @@ export class PiRuntimeManager {
 						.join("\n"),
 					status: message.isError ? "error" : "done",
 					toolName: message.toolName,
-					toolInput: toolCallArgs?.get(message.toolCallId),
+					toolInput: this.getToolInput(toolInputsByCallId, message.toolCallId),
 					metadata: {},
 				};
 			}
@@ -344,19 +395,10 @@ export class PiRuntimeManager {
 	getConversation(sessionId: string) {
 		const runtime = this.runtimes.get(sessionId);
 		if (!runtime) return [];
-		const toolCallArgs = new Map<string, Record<string, unknown>>();
-		for (const message of runtime.session.messages) {
-			if ("role" in message && message.role === "assistant") {
-				for (const part of message.content) {
-					if (part.type === "toolCall") {
-						toolCallArgs.set(part.id, part.arguments);
-					}
-				}
-			}
-		}
+		const toolInputsByCallId = new Map<string, Record<string, unknown>>();
 		return runtime.session.messages
 			.map((message, index) =>
-				this.mapConversationMessage(sessionId, message, index, toolCallArgs),
+				this.mapConversationMessage(sessionId, message, index, toolInputsByCallId),
 			)
 			.filter((entry): entry is ConversationEntryView => Boolean(entry));
 	}
@@ -543,6 +585,7 @@ export class PiRuntimeManager {
 				runtime.record.id,
 				event.message,
 				messageIndex,
+				runtime.toolInputsByCallId,
 			);
 			if (!entry) return;
 			if (entry.kind === "user") return;
@@ -575,6 +618,7 @@ export class PiRuntimeManager {
 				runtime.record.id,
 				event.message,
 				messageIndex,
+				runtime.toolInputsByCallId,
 			);
 			if (!entry) return;
 			if (entry.kind === "user") return;
@@ -586,6 +630,11 @@ export class PiRuntimeManager {
 			return;
 		}
 		if (event.type === "tool_execution_start") {
+			this.rememberToolInput(
+				runtime.toolInputsByCallId,
+				event.toolCallId,
+				event.args,
+			);
 			const activity: ToolActivityView = {
 				id: crypto.randomUUID(),
 				sessionId: runtime.record.id,
@@ -752,11 +801,16 @@ export class PiRuntimeManager {
 		if (record.displayName) {
 			session.setSessionName(record.displayName);
 		}
+		const toolInputsByCallId = new Map<string, Record<string, unknown>>();
+		for (const message of session.messages) {
+			this.rememberToolInputsFromMessage(toolInputsByCallId, message);
+		}
 		const runtime: ManagedRuntime = {
 			record,
 			session,
 			resourceLoader,
 			toolActivity: [],
+			toolInputsByCallId,
 			unsubscribe: () => undefined,
 			nextMessageEmitIndex: session.messages.length,
 			isAgentRunning: false,
