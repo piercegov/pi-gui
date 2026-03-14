@@ -27,7 +27,22 @@ function formatTree(tree: SessionTreeNodeView[]): string {
 }
 
 function checkpointLabel(kind: CheckpointSummaryView["kind"]) {
-	return kind.replace(/_/g, " ");
+	switch (kind) {
+		case "baseline":
+			return "Baseline";
+		case "pre_turn":
+			return "Turn start";
+		case "post_turn":
+			return "Turn end";
+		case "review_start":
+			return "Review start";
+		case "alignment":
+			return "Alignment";
+		case "revision":
+			return "Revision snapshot";
+		case "manual":
+			return "Manual checkpoint";
+	}
 }
 
 function TreeNode(props: {
@@ -58,7 +73,7 @@ function TreeNode(props: {
 				</div>
 			</div>
 			{props.node.children.length > 0 ? (
-				<div className="space-y-px">
+				<div className="max-h-[240px] space-y-px overflow-auto">
 					{props.node.children.map((child) => (
 						<TreeNode key={child.id} node={child} depth={depth + 1} />
 					))}
@@ -198,18 +213,23 @@ export function SessionInspector(props: {
 				</div>
 				<div className="space-y-px">
 					{props.inspector?.checkpoints.length ? (
-						props.inspector.checkpoints.slice(0, 8).map((checkpoint) => (
+						props.inspector.checkpoints.map((checkpoint) => (
 							<div
 								key={checkpoint.id}
-								className="flex items-center justify-between px-1 py-1 hover:bg-white/3"
+								className="flex items-center justify-between gap-3 px-1 py-1 hover:bg-white/3"
 							>
-								<div>
+								<div className="min-w-0">
 									<div className="text-xs text-white/50">
 										{checkpointLabel(checkpoint.kind)}
 									</div>
 									<div className="truncate mono text-2xs text-white/20">
 										{checkpoint.gitTree ?? checkpoint.gitHead ?? checkpoint.id}
 									</div>
+									{checkpoint.parentCheckpointId ? (
+										<div className="truncate mono text-2xs text-white/15">
+											parent {checkpoint.parentCheckpointId}
+										</div>
+									) : null}
 								</div>
 								<span className="shrink-0 text-2xs text-white/20">
 									{new Date(checkpoint.createdAt).toLocaleTimeString([], {

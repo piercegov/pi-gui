@@ -202,15 +202,32 @@ function makeRevision(sessionId: string, diffId: string, checkpointId: string): 
 }
 
 function makeInspector(sessionId: string): SessionInspectorView {
+	const baselineCheckpoint = makeCheckpoint(
+		sessionId,
+		`mock-cp:${sessionId}:baseline`,
+		"baseline",
+		Date.now() - 5_000,
+	);
+	const preTurnCheckpoint = makeCheckpoint(
+		sessionId,
+		`mock-cp:${sessionId}:pre-turn`,
+		"pre_turn",
+		Date.now() - 2_500,
+		baselineCheckpoint.id,
+	);
+	const postTurnCheckpoint = makeCheckpoint(
+		sessionId,
+		`mock-cp:${sessionId}:post-turn`,
+		"post_turn",
+		Date.now(),
+		preTurnCheckpoint.id,
+	);
 	return {
 		sessionId,
 		sessionFile: `mock://sessions/${sessionId}.jsonl`,
 		parentSessionPath: "mock://sessions/root.jsonl",
 		worktreeMissing: false,
-		checkpoints: [
-			makeCheckpoint(sessionId, `mock-cp:${sessionId}:post-turn`, "post_turn", Date.now(), `mock-cp:${sessionId}:baseline`),
-			makeCheckpoint(sessionId, `mock-cp:${sessionId}:baseline`, "baseline", Date.now() - 5_000),
-		],
+		checkpoints: [postTurnCheckpoint, preTurnCheckpoint, baselineCheckpoint],
 		tree: [
 			{
 				id: `mock-tree:${sessionId}:root`,
@@ -425,6 +442,15 @@ export class MockWorkflowService {
 			entry: clone(userEntry),
 		});
 
+		const preTurnCheckpoint = makeCheckpoint(
+			sessionId,
+			`mock-cp:${sessionId}:pre-turn:${runVersion}`,
+			"pre_turn",
+			Date.now(),
+			this.latestCheckpointId(state),
+		);
+		this.emitCheckpoint(state, preTurnCheckpoint);
+
 		await this.wait(state, runVersion, 1);
 		if (!this.isRunCurrent(state, runVersion)) return false;
 
@@ -495,16 +521,12 @@ export class MockWorkflowService {
 
 		const postTurnCheckpoint = makeCheckpoint(
 			sessionId,
-			`mock-cp:${sessionId}:post-turn`,
+			`mock-cp:${sessionId}:post-turn:${runVersion}`,
 			"post_turn",
 			Date.now(),
-			`mock-cp:${sessionId}:baseline`,
+			preTurnCheckpoint.id,
 		);
-		this.addCheckpoint(state, postTurnCheckpoint);
-		this.messenger.sessionEvent({
-			type: "checkpoint_created",
-			checkpoint: clone(postTurnCheckpoint),
-		});
+		this.emitCheckpoint(state, postTurnCheckpoint);
 
 		state.contextUsage = {
 			sessionId,
@@ -556,10 +578,9 @@ export class MockWorkflowService {
 			`mock-cp:${sessionId}:manual:${Date.now()}`,
 			"manual",
 			Date.now(),
-			state.checkpoints[0]?.id,
+			this.latestCheckpointId(state),
 		);
-		this.addCheckpoint(state, checkpoint);
-		state.inspector.checkpoints = [checkpoint, ...state.inspector.checkpoints];
+		this.emitCheckpoint(state, checkpoint);
 		this.touchSession(state);
 		return clone(checkpoint);
 	}
@@ -615,11 +636,9 @@ export class MockWorkflowService {
 
 	private buildSessionState(displayName: string): MockSessionState {
 		const sessionId = `mock-session:${CURSOR_CLOUD_DEMO_WORKFLOW_ID}:${crypto.randomUUID().slice(0, 8)}`;
-		const baselineCheckpoint = makeCheckpoint(
-			sessionId,
-			`mock-cp:${sessionId}:baseline`,
-			"baseline",
-			Date.now() - 15_000,
+		const inspector = makeInspector(sessionId);
+		const checkpoints = [...inspector.checkpoints].sort(
+			(a, b) => a.createdAt - b.createdAt,
 		);
 		const currentDiff = makeDiff(sessionId);
 		const revisions = [
@@ -653,8 +672,8 @@ export class MockWorkflowService {
 			},
 			conversation: [],
 			toolActivity: [],
-			checkpoints: [baselineCheckpoint],
-			inspector: makeInspector(sessionId),
+			checkpoints,
+			inspector,
 			contextUsage: undefined,
 			revisions,
 			currentDiff,
@@ -700,6 +719,25 @@ export class MockWorkflowService {
 		state.checkpoints = [...state.checkpoints, checkpoint].sort(
 			(a, b) => a.createdAt - b.createdAt,
 		);
+	}
+
+	private syncInspectorCheckpoints(state: MockSessionState) {
+		state.inspector.checkpoints = [...state.checkpoints].sort(
+			(a, b) => b.createdAt - a.createdAt,
+		);
+	}
+
+	private emitCheckpoint(state: MockSessionState, checkpoint: CheckpointSummaryView) {
+		this.addCheckpoint(state, checkpoint);
+		this.syncInspectorCheckpoints(state);
+		this.messenger.sessionEvent({
+			type: "checkpoint_created",
+			checkpoint: clone(checkpoint),
+		});
+	}
+
+	private latestCheckpointId(state: MockSessionState) {
+		return state.checkpoints[state.checkpoints.length - 1]?.id;
 	}
 
 	private async runToolSequence(
