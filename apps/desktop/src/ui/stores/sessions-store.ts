@@ -37,9 +37,26 @@ type SessionsState = {
 	createManualCheckpoint: (
 		sessionId: string,
 	) => Promise<CheckpointSummaryView | undefined>;
+	applyCheckpointEvent: (checkpoint: CheckpointSummaryView) => void;
 	upsertSummary: (summary: SessionSummary) => void;
 	setHydration: (hydration: SessionHydration | undefined) => void;
 };
+
+function mergeHydratedCheckpoints(
+	current: CheckpointSummaryView[],
+	checkpoint: CheckpointSummaryView,
+) {
+	const next = current.filter((candidate) => candidate.id !== checkpoint.id);
+	next.push(checkpoint);
+	return next.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function mergeInspectorCheckpoints(
+	current: CheckpointSummaryView[],
+	checkpoint: CheckpointSummaryView,
+) {
+	return mergeHydratedCheckpoints(current, checkpoint);
+}
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
 	sessionsByProject: {},
@@ -116,6 +133,36 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		const checkpoint = await rpc.request.createManualCheckpoint({ sessionId });
 		await get().loadInspector(sessionId);
 		return checkpoint;
+	},
+	applyCheckpointEvent(checkpoint) {
+		set((state) => {
+			const currentHydration =
+				state.currentHydration?.session.id === checkpoint.sessionId
+					? {
+							...state.currentHydration,
+							checkpoints: mergeHydratedCheckpoints(
+								state.currentHydration.checkpoints,
+								checkpoint,
+							),
+						}
+					: state.currentHydration;
+			const currentInspector = state.inspectorsBySession[checkpoint.sessionId];
+			return {
+				currentHydration,
+				inspectorsBySession: currentInspector
+					? {
+							...state.inspectorsBySession,
+							[checkpoint.sessionId]: {
+								...currentInspector,
+								checkpoints: mergeInspectorCheckpoints(
+									currentInspector.checkpoints,
+									checkpoint,
+								),
+							},
+						}
+					: state.inspectorsBySession,
+			};
+		});
 	},
 	upsertSummary(summary) {
 		set((state) => {

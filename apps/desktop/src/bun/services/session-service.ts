@@ -11,7 +11,11 @@ import type {
 	SessionSummary,
 } from "../../shared/models";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import { CheckpointService, type CheckpointRecord } from "./checkpoint-service";
+import {
+	CheckpointService,
+	type CheckpointRecord,
+	toCheckpointSummaryView,
+} from "./checkpoint-service";
 import { AppDb } from "./db";
 import { GitService } from "./git-service";
 import type { HostMessenger } from "./host-messenger";
@@ -165,6 +169,18 @@ export class SessionService {
 		const summary = await this.getSessionSummary(sessionId);
 		if (!summary) return;
 		this.messenger.sessionSummaryUpdated(summary);
+	}
+
+	private mapCheckpoint(checkpoint: CheckpointRecord) {
+		return toCheckpointSummaryView(checkpoint) satisfies CheckpointSummaryView;
+	}
+
+	private emitCheckpointCreated(checkpoint: CheckpointRecord | null | undefined) {
+		if (!checkpoint) return;
+		this.messenger.sessionEvent({
+			type: "checkpoint_created",
+			checkpoint: this.mapCheckpoint(checkpoint),
+		});
 	}
 
 	resetStaleStatuses() {
@@ -437,15 +453,9 @@ export class SessionService {
 		}
 
 		const checkpointRecords = this.checkpoints.listCheckpoints(sessionId);
-		const checkpointViews: CheckpointSummaryView[] = checkpointRecords.map((cp) => ({
-			id: cp.id,
-			sessionId: cp.sessionId,
-			kind: cp.kind,
-			createdAt: cp.createdAt,
-			gitHead: cp.gitHead,
-			gitTree: cp.gitTree,
-			parentCheckpointId: cp.parentCheckpointId,
-		}));
+		const checkpointViews: CheckpointSummaryView[] = checkpointRecords.map((cp) =>
+			this.mapCheckpoint(cp),
+		);
 		return {
 			project,
 			session,
@@ -510,15 +520,7 @@ export class SessionService {
 		if (!summary) throw new Error("Session not found.");
 		const checkpoints: CheckpointSummaryView[] = this.checkpoints
 			.listCheckpoints(sessionId)
-			.map((checkpoint) => ({
-				id: checkpoint.id,
-				sessionId: checkpoint.sessionId,
-				kind: checkpoint.kind,
-				createdAt: checkpoint.createdAt,
-				gitHead: checkpoint.gitHead,
-				gitTree: checkpoint.gitTree,
-				parentCheckpointId: checkpoint.parentCheckpointId,
-			}));
+			.map((checkpoint) => this.mapCheckpoint(checkpoint));
 		return {
 			sessionId,
 			sessionFile: row.pi_session_file ?? undefined,
@@ -632,6 +634,7 @@ export class SessionService {
 			kind: "manual",
 			parentCheckpointId: checkpointId,
 		});
+		this.emitCheckpointCreated(restored);
 		await this.refreshGitStatus(sessionId);
 		this.messenger.diffInvalidated({ sessionId });
 		this.messenger.toast({
@@ -671,6 +674,7 @@ export class SessionService {
 			parentCheckpointId: parent?.id,
 		});
 		if (!checkpoint) throw new Error("Failed to create manual checkpoint.");
+		this.emitCheckpointCreated(checkpoint);
 		this.messenger.toast({
 			id: crypto.randomUUID(),
 			title: "Manual checkpoint saved",
@@ -680,15 +684,7 @@ export class SessionService {
 			}),
 			variant: "success",
 		});
-		return {
-			id: checkpoint.id,
-			sessionId: checkpoint.sessionId,
-			kind: checkpoint.kind,
-			createdAt: checkpoint.createdAt,
-			gitHead: checkpoint.gitHead,
-			gitTree: checkpoint.gitTree,
-			parentCheckpointId: checkpoint.parentCheckpointId,
-		} satisfies CheckpointSummaryView;
+		return this.mapCheckpoint(checkpoint);
 	}
 
 	async onTurnStart(sessionId: string, turnIndex: number, event: AgentSessionEvent) {
@@ -707,20 +703,7 @@ export class SessionService {
 				cwd: row.cwd_path,
 				kind: "pre_turn",
 			});
-			if (checkpoint) {
-				this.messenger.sessionEvent({
-					type: "checkpoint_created",
-					checkpoint: {
-						id: checkpoint.id,
-						sessionId: checkpoint.sessionId,
-						kind: checkpoint.kind,
-						createdAt: checkpoint.createdAt,
-						gitHead: checkpoint.gitHead,
-						gitTree: checkpoint.gitTree,
-						parentCheckpointId: checkpoint.parentCheckpointId,
-					},
-				});
-			}
+			this.emitCheckpointCreated(checkpoint);
 		}
 		this.db.run(
 			`
@@ -757,20 +740,7 @@ export class SessionService {
 				cwd: row.cwd_path,
 				kind: "post_turn",
 			});
-			if (checkpoint) {
-				this.messenger.sessionEvent({
-					type: "checkpoint_created",
-					checkpoint: {
-						id: checkpoint.id,
-						sessionId: checkpoint.sessionId,
-						kind: checkpoint.kind,
-						createdAt: checkpoint.createdAt,
-						gitHead: checkpoint.gitHead,
-						gitTree: checkpoint.gitTree,
-						parentCheckpointId: checkpoint.parentCheckpointId,
-					},
-				});
-			}
+			this.emitCheckpointCreated(checkpoint);
 		}
 		this.db.run(
 			`

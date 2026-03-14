@@ -98,9 +98,14 @@ describe("MockWorkflowService", () => {
 					event.type === "tool_activity" && event.activity.toolName === "write",
 			),
 		).toBe(true);
-		expect(
-			sessionEvents.some((event) => event.type === "checkpoint_created"),
-		).toBe(true);
+		const checkpointEvents = sessionEvents.filter(
+			(event): event is Extract<SessionStreamEvent, { type: "checkpoint_created" }> =>
+				event.type === "checkpoint_created",
+		);
+		expect(checkpointEvents.map((event) => event.checkpoint.kind)).toEqual([
+			"pre_turn",
+			"post_turn",
+		]);
 		expect(
 			summaries.some((summary) => summary.status === "reviewing"),
 		).toBe(true);
@@ -108,5 +113,30 @@ describe("MockWorkflowService", () => {
 		const finalSummary = service.getSessionSummary(session.id);
 		expect(finalSummary?.reviewState).toBe("discussing");
 		expect(finalSummary?.changedFilesCount).toBe(1);
+	});
+
+	test("manual checkpoints emit events and update inspector state", () => {
+		const { messenger, sessionEvents } = createMessengerHarness();
+		const service = new MockWorkflowService({
+			messenger,
+			enabledWorkflowId: CURSOR_CLOUD_DEMO_WORKFLOW_ID,
+			workspaceRoot: "/workspace",
+			timelineStepMs: 1,
+		});
+		const project = service.listProjects([])[0]!;
+		const session = service.listSessions(project.id, false)![0]!;
+
+		const checkpoint = service.createManualCheckpoint(session.id);
+		const inspector = service.getSessionInspector(session.id);
+		const checkpointEvents = sessionEvents.filter(
+			(event): event is Extract<SessionStreamEvent, { type: "checkpoint_created" }> =>
+				event.type === "checkpoint_created",
+		);
+
+		expect(checkpoint?.kind).toBe("manual");
+		expect(checkpointEvents.at(-1)?.checkpoint.id).toBe(checkpoint?.id);
+		expect(inspector?.checkpoints.some((candidate) => candidate.id === checkpoint?.id)).toBe(
+			true,
+		);
 	});
 });

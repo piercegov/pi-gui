@@ -3,141 +3,7 @@ import { Send, Square, CornerDownRight, Zap, ChevronRight, Wrench, CheckCircle2,
 import type { CheckpointSummaryView, ConversationEntryView, SessionSummary } from "@shared/models";
 import { useConversationStore } from "@ui/stores/conversation-store";
 import { MarkdownRenderer } from "@ui/lib/markdown";
-
-/** Returns true if an assistant entry contains only tool-call references (no real text). */
-function isToolCallOnly(entry: ConversationEntryView): boolean {
-	if (entry.kind !== "assistant") return false;
-	const trimmed = entry.markdown.trim();
-	if (!trimmed) return true;
-	return trimmed.split("\n").every((line) => /^-\s*`[^`]+`\s*$/.test(line.trim()));
-}
-
-/** Strip tool-call list lines from assistant markdown, returning only real text. */
-function stripToolCallLines(markdown: string): string {
-	const lines = markdown
-		.split("\n")
-		.filter((line) => !/^-\s*`[^`]+`\s*$/.test(line.trim()));
-
-	while (lines.length > 0 && lines[0].trim() === "") {
-		lines.shift();
-	}
-	while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
-		lines.pop();
-	}
-
-	return lines.join("\n");
-}
-
-type TurnContentBlock =
-	| { type: "text"; markdown: string }
-	| { type: "tool"; entry: ConversationEntryView };
-
-type AssistantTurn = {
-	type: "assistant_turn";
-	/** First assistant entry in the group (used for id/timestamp). */
-	lead: ConversationEntryView;
-	/** Ordered content blocks preserving the interleaving of text and tool calls. */
-	blocks: TurnContentBlock[];
-};
-
-type CheckpointBlock = {
-	type: "checkpoint";
-	checkpoint: CheckpointSummaryView;
-};
-
-type RenderBlock =
-	| { type: "entry"; entry: ConversationEntryView }
-	| AssistantTurn
-	| CheckpointBlock;
-
-/**
- * Groups consecutive assistant + tool entries into unified assistant turns,
- * then interleaves checkpoint markers by timestamp.
- */
-function groupEntries(
-	entries: ConversationEntryView[],
-	checkpoints: CheckpointSummaryView[],
-): RenderBlock[] {
-	const blocks: RenderBlock[] = [];
-	let i = 0;
-	while (i < entries.length) {
-		const entry = entries[i];
-		if (entry.kind === "assistant") {
-			const lead = entry;
-			const contentBlocks: TurnContentBlock[] = [];
-			const realText = stripToolCallLines(entry.markdown);
-			if (realText) contentBlocks.push({ type: "text", markdown: realText });
-			i++;
-			// Absorb following tool results and tool-call-only assistant entries
-			while (i < entries.length) {
-				const next = entries[i];
-				if (next.kind === "tool") {
-					contentBlocks.push({ type: "tool", entry: next });
-					i++;
-				} else if (isToolCallOnly(next)) {
-					// Skip tool-call-only assistant entries (tool names already shown on cards)
-					i++;
-				} else if (next.kind === "assistant") {
-					// Another assistant entry with real text — include text and continue absorbing
-					const text = stripToolCallLines(next.markdown);
-					if (text) contentBlocks.push({ type: "text", markdown: text });
-					i++;
-				} else {
-					break;
-				}
-			}
-			blocks.push({
-				type: "assistant_turn",
-				lead,
-				blocks: contentBlocks,
-			});
-		} else {
-			blocks.push({ type: "entry", entry });
-			i++;
-		}
-	}
-
-	// Only show post_turn, manual, and alignment checkpoints, sorted ascending by time
-	const visibleCheckpoints = checkpoints
-		.filter((cp) => cp.kind === "post_turn" || cp.kind === "manual" || cp.kind === "alignment")
-		.sort((a, b) => a.createdAt - b.createdAt);
-
-	if (visibleCheckpoints.length === 0) return blocks;
-
-	// Interleave checkpoints by timestamp, but collapse consecutive
-	// checkpoints (with no conversation block between them) into one,
-	// keeping only the latest in each run.
-	const merged: RenderBlock[] = [];
-	let cpIdx = 0;
-
-	for (const block of blocks) {
-		const blockTimestamp =
-			block.type === "assistant_turn"
-				? block.lead.timestamp
-				: block.type === "entry"
-					? block.entry.timestamp
-					: 0;
-
-		// Collect all checkpoints that occurred before this block
-		let lastCpBeforeBlock: CheckpointSummaryView | null = null;
-		while (cpIdx < visibleCheckpoints.length && visibleCheckpoints[cpIdx].createdAt <= blockTimestamp) {
-			lastCpBeforeBlock = visibleCheckpoints[cpIdx];
-			cpIdx++;
-		}
-		// Only emit the last checkpoint in a consecutive run
-		if (lastCpBeforeBlock) {
-			merged.push({ type: "checkpoint", checkpoint: lastCpBeforeBlock });
-		}
-		merged.push(block);
-	}
-
-	// Collapse any remaining checkpoints after all blocks into one
-	if (cpIdx < visibleCheckpoints.length) {
-		merged.push({ type: "checkpoint", checkpoint: visibleCheckpoints[visibleCheckpoints.length - 1] });
-	}
-
-	return merged;
-}
+import { groupConversationTimeline } from "./conversation-timeline";
 
 const CheckpointBar = memo(function CheckpointBar(props: {
 	checkpoint: CheckpointSummaryView;
@@ -149,9 +15,11 @@ const CheckpointBar = memo(function CheckpointBar(props: {
 	const label =
 		checkpoint.kind === "alignment"
 			? "Alignment"
+			: checkpoint.kind === "pre_turn"
+				? "Turn start"
 			: checkpoint.kind === "manual"
 				? "Manual checkpoint"
-				: "Checkpoint";
+				: "Turn end";
 
 	return (
 		<div
@@ -162,6 +30,12 @@ const CheckpointBar = memo(function CheckpointBar(props: {
 			<div className="flex items-center gap-1.5 text-white/20">
 				<Flag className="h-3 w-3" />
 				<span className="text-2xs">{label}</span>
+				<span className="text-2xs text-white/15">
+					{new Date(checkpoint.createdAt).toLocaleTimeString([], {
+						hour: "numeric",
+						minute: "2-digit",
+					})}
+				</span>
 			</div>
 			<div className="flex-1 border-t border-dashed border-white/10" />
 			<div
@@ -344,7 +218,7 @@ const ConversationContent = memo(function ConversationContent(props: {
 	const checkpoints = useConversationStore((s) => s.checkpoints);
 
 	const grouped = useMemo(
-		() => groupEntries(entries, checkpoints),
+		() => groupConversationTimeline(entries, checkpoints),
 		[entries, checkpoints],
 	);
 

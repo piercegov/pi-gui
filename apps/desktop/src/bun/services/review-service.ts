@@ -13,7 +13,7 @@ import type {
 	ThreadStatus,
 } from "../../shared/models";
 import { AppDb } from "./db";
-import { CheckpointService } from "./checkpoint-service";
+import { CheckpointService, toCheckpointSummaryView } from "./checkpoint-service";
 import { GitService } from "./git-service";
 import type { HostMessenger } from "./host-messenger";
 
@@ -503,11 +503,17 @@ export class ReviewService {
 			sessionId,
 		)?.cwd_path;
 		if (cwdPath) {
-			await this.checkpoints.createCheckpoint({
+			const checkpoint = await this.checkpoints.createCheckpoint({
 				sessionId,
 				cwd: cwdPath,
 				kind: "review_start",
 			});
+			if (checkpoint) {
+				this.messenger.sessionEvent({
+					type: "checkpoint_created",
+					checkpoint: toCheckpointSummaryView(checkpoint),
+				});
+			}
 		}
 		this.db.run(
 			`
@@ -549,11 +555,17 @@ export class ReviewService {
 			sessionId,
 		)?.cwd_path;
 		if (cwdPath) {
-			await this.checkpoints.createCheckpoint({
+			const checkpoint = await this.checkpoints.createCheckpoint({
 				sessionId,
 				cwd: cwdPath,
 				kind: "revision",
 			});
+			if (checkpoint) {
+				this.messenger.sessionEvent({
+					type: "checkpoint_created",
+					checkpoint: toCheckpointSummaryView(checkpoint),
+				});
+			}
 		}
 		this.db.run(
 			"update review_rounds set state = 'approved', approved_at = ? where id = ?",
@@ -606,6 +618,12 @@ export class ReviewService {
 				kind: "revision",
 			});
 			checkpointId = cp?.id;
+			if (cp) {
+				this.messenger.sessionEvent({
+					type: "checkpoint_created",
+					checkpoint: toCheckpointSummaryView(cp),
+				});
+			}
 		}
 
 		// Mark current revision as superseded

@@ -56,6 +56,23 @@ export interface CheckpointRecord {
 	parentCheckpointId?: string;
 }
 
+export function toCheckpointSummaryView(
+	checkpoint: Pick<
+		CheckpointRecord,
+		"id" | "sessionId" | "kind" | "createdAt" | "gitHead" | "gitTree" | "parentCheckpointId"
+	>,
+) {
+	return {
+		id: checkpoint.id,
+		sessionId: checkpoint.sessionId,
+		kind: checkpoint.kind,
+		createdAt: checkpoint.createdAt,
+		gitHead: checkpoint.gitHead,
+		gitTree: checkpoint.gitTree,
+		parentCheckpointId: checkpoint.parentCheckpointId,
+	};
+}
+
 export class CheckpointService {
 	private transientDiffCache = new Map<string, DiffSnapshotView>();
 
@@ -149,18 +166,29 @@ export class CheckpointService {
 		return row ? this.toCheckpoint(row) : null;
 	}
 
-	listCheckpoints(sessionId: string, limit = 24) {
-		const rows = this.db.all<CheckpointRow>(
-			`
-			select *
-			from checkpoints
-			where session_id = ?
-			order by created_at desc
-			limit ?
-			`,
-			sessionId,
-			limit,
-		);
+	listCheckpoints(sessionId: string, limit?: number) {
+		const rows =
+			typeof limit === "number"
+				? this.db.all<CheckpointRow>(
+						`
+						select *
+						from checkpoints
+						where session_id = ?
+						order by created_at desc
+						limit ?
+						`,
+						sessionId,
+						limit,
+					)
+				: this.db.all<CheckpointRow>(
+						`
+						select *
+						from checkpoints
+						where session_id = ?
+						order by created_at desc
+						`,
+						sessionId,
+					);
 		return rows.map((row) => this.toCheckpoint(row));
 	}
 

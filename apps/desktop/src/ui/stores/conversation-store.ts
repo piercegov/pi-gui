@@ -19,6 +19,15 @@ type ConversationState = {
 	applyEvent: (event: SessionStreamEvent) => void;
 };
 
+function mergeCheckpoints(
+	current: CheckpointSummaryView[],
+	checkpoint: CheckpointSummaryView,
+) {
+	const next = current.filter((candidate) => candidate.id !== checkpoint.id);
+	next.push(checkpoint);
+	return next.sort((a, b) => a.createdAt - b.createdAt);
+}
+
 export const useConversationStore = create<ConversationState>((set) => ({
 	sessionId: undefined,
 	entries: [],
@@ -93,7 +102,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
 				if (event.checkpoint.sessionId !== state.sessionId) return state;
 				return {
 					...state,
-					checkpoints: [...state.checkpoints, event.checkpoint],
+					checkpoints: mergeCheckpoints(state.checkpoints, event.checkpoint),
 				};
 			}
 			if (event.type === "context_usage") {

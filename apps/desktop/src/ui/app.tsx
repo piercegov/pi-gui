@@ -131,6 +131,7 @@ export function App() {
 	const archiveSession = useSessionsStore((state) => state.archiveSession);
 	const repairWorktree = useSessionsStore((state) => state.repairWorktree);
 	const createManualCheckpoint = useSessionsStore((state) => state.createManualCheckpoint);
+	const applyCheckpointEvent = useSessionsStore((state) => state.applyCheckpointEvent);
 	const upsertSummary = useSessionsStore((state) => state.upsertSummary);
 	const currentHydration = useSessionsStore((state) => state.currentHydration);
 	const setHydration = useSessionsStore((state) => state.setHydration);
@@ -341,6 +342,9 @@ export function App() {
 		};
 		const onSessionEvent = (event: Parameters<typeof applyEvent>[0]) => {
 			applyEvent(event);
+			if (event.type === "checkpoint_created") {
+				applyCheckpointEvent(event.checkpoint);
+			}
 		};
 		const onRevisionUpdated = (revision: Parameters<typeof updateRevision>[0]) => {
 			updateRevision(revision);
@@ -390,7 +394,7 @@ export function App() {
 			rpc.removeMessageListener("toast", onToast);
 			rpc.removeMessageListener("permissionPrompt", onPermissionPrompt);
 		};
-	}, [appendTerminalOutput, applyEvent, markStale, markTerminalExit, updateRevision, updateThread, upsertSummary]);
+	}, [appendTerminalOutput, applyCheckpointEvent, applyEvent, markStale, markTerminalExit, updateRevision, updateThread, upsertSummary]);
 
 	const resolvePermissionPrompt = useCallback(
 		(decision: PermissionPromptDecision, selectedScopeId?: string, userMessage?: string) => {
