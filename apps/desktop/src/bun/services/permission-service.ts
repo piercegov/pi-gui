@@ -42,6 +42,11 @@ type CommandAssessment = {
 	risk: CommandRisk;
 };
 
+type AutoAllowEvaluation = {
+	allow: boolean;
+	nextCwdPath: string;
+};
+
 type PendingPrompt = {
 	resolve: (resolution: PermissionPromptResolution) => void;
 	timer: ReturnType<typeof setTimeout>;
@@ -802,23 +807,92 @@ export class PermissionService {
 		return false;
 	}
 
-	private isSegmentAutoAllowable(
+	private getAllowedRoots(projectRoot: string, cwdPath: string) {
+		return Array.from(new Set([resolve(projectRoot), resolve(cwdPath)]));
+	}
+
+	private isWithinAllowedRoots(targetPath: string, roots: string[]) {
+		return roots.some((root) => this.isWithinRoot(targetPath, root));
+	}
+
+	private stripAllowedReadOnlyRedirectionTokens(tokens: string[]) {
+		const filteredTokens: string[] = [];
+		for (let index = 0; index < tokens.length; index += 1) {
+			const token = tokens[index];
+			if (token === "2>" || token === "2>>") {
+				const nextToken = tokens[index + 1];
+				if (nextToken === "/dev/null") {
+					index += 1;
+					continue;
+				}
+				return undefined;
+			}
+			if (token === "2>/dev/null" || token === "2>>/dev/null") {
+				continue;
+			}
+			if (token.includes(">")) {
+				return undefined;
+			}
+			filteredTokens.push(token);
+		}
+		return filteredTokens;
+	}
+
+	private hasUnsafeShellExpansion(token: string) {
+		return token === "~" || token === "-" || token.includes("$") || token.includes("`");
+	}
+
+	private evaluateAutoAllowableCd(
+		argsAfterExec: string[],
+		allowedRoots: string[],
+		cwdPath: string,
+	): AutoAllowEvaluation {
+		if (argsAfterExec.length !== 1) {
+			return { allow: false, nextCwdPath: cwdPath };
+		}
+		const targetToken = argsAfterExec[0];
+		if (
+			!targetToken ||
+			targetToken.startsWith("-") ||
+			this.hasUnsafeShellExpansion(targetToken)
+		) {
+			return { allow: false, nextCwdPath: cwdPath };
+		}
+		const resolvedTarget = isAbsolute(targetToken)
+			? resolve(targetToken)
+			: resolve(cwdPath, targetToken);
+		if (!this.isWithinAllowedRoots(resolvedTarget, allowedRoots)) {
+			return { allow: false, nextCwdPath: cwdPath };
+		}
+		return { allow: true, nextCwdPath: resolvedTarget };
+	}
+
+	private evaluateSegmentAutoAllowable(
 		assessment: CommandAssessment,
 		projectRoot: string,
 		cwdPath: string,
-	) {
-		const { fullTokens, segment } = assessment;
+	): AutoAllowEvaluation {
+		const { segment } = assessment;
+		let fullTokens = assessment.fullTokens;
 
 		// Reject output redirection
-		if (this.hasOutputRedirection(segment)) return false;
+		if (this.hasOutputRedirection(segment)) {
+			const sanitizedTokens = this.stripAllowedReadOnlyRedirectionTokens(fullTokens);
+			if (!sanitizedTokens) {
+				return { allow: false, nextCwdPath: cwdPath };
+			}
+			fullTokens = sanitizedTokens;
+		}
 
 		// Find the executable, rejecting sudo
 		const execIndex = this.firstExecutableToken(fullTokens);
-		if (execIndex < 0) return false;
+		if (execIndex < 0) return { allow: false, nextCwdPath: cwdPath };
 
 		// Check for sudo — even for read-only commands, sudo changes security context
 		for (let i = 0; i < execIndex; i += 1) {
-			if (fullTokens[i] === "sudo") return false;
+			if (fullTokens[i] === "sudo") {
+				return { allow: false, nextCwdPath: cwdPath };
+			}
 		}
 
 		const executable =
@@ -831,25 +905,38 @@ export class PermissionService {
 			argsAfterExec.length === 1 &&
 			argsAfterExec[0] === "--version"
 		) {
-			return true;
+			return { allow: true, nextCwdPath: cwdPath };
+		}
+
+		const allowedRoots = this.getAllowedRoots(projectRoot, cwdPath);
+		if (executable === "cd") {
+			return this.evaluateAutoAllowableCd(argsAfterExec, allowedRoots, cwdPath);
 		}
 
 		// Check if executable is in the safe set
-		if (!SAFE_READ_EXECUTABLES.has(executable)) return false;
+		if (!SAFE_READ_EXECUTABLES.has(executable)) {
+			return { allow: false, nextCwdPath: cwdPath };
+		}
 
 		// Git: check subcommand
 		if (executable === "git") {
 			const subcommand = argsAfterExec.find((t) => !t.startsWith("-"));
-			if (!subcommand || !SAFE_GIT_SUBCOMMANDS.has(subcommand)) return false;
+			if (!subcommand || !SAFE_GIT_SUBCOMMANDS.has(subcommand)) {
+				return { allow: false, nextCwdPath: cwdPath };
+			}
 
 			// git config: reject mutation flags and set operations
 			if (subcommand === "config") {
-				if (argsAfterExec.some((t) => GIT_CONFIG_MUTATION_FLAGS.has(t))) return false;
+				if (argsAfterExec.some((t) => GIT_CONFIG_MUTATION_FLAGS.has(t))) {
+					return { allow: false, nextCwdPath: cwdPath };
+				}
 				// 3+ positional args after "config" means a set operation (key + value)
 				const positional = argsAfterExec.filter(
 					(t) => !t.startsWith("-") && t !== "config",
 				);
-				if (positional.length >= 2) return false;
+				if (positional.length >= 2) {
+					return { allow: false, nextCwdPath: cwdPath };
+				}
 			}
 
 			// git stash: only allow "list" and "show"
@@ -857,7 +944,9 @@ export class PermissionService {
 				const stashAction = argsAfterExec.find(
 					(t) => !t.startsWith("-") && t !== "stash",
 				);
-				if (!stashAction || !["list", "show"].includes(stashAction)) return false;
+				if (!stashAction || !["list", "show"].includes(stashAction)) {
+					return { allow: false, nextCwdPath: cwdPath };
+				}
 			}
 
 			// git worktree: only allow "list"
@@ -865,7 +954,9 @@ export class PermissionService {
 				const worktreeAction = argsAfterExec.find(
 					(t) => !t.startsWith("-") && t !== "worktree",
 				);
-				if (worktreeAction !== "list") return false;
+				if (worktreeAction !== "list") {
+					return { allow: false, nextCwdPath: cwdPath };
+				}
 			}
 		}
 
@@ -876,7 +967,7 @@ export class PermissionService {
 					(t) => t === "-i" || t === "--in-place" || t.startsWith("-i"),
 				)
 			)
-				return false;
+				return { allow: false, nextCwdPath: cwdPath };
 		}
 
 		// Check path scope: all non-flag positional arguments are resolved and
@@ -885,7 +976,6 @@ export class PermissionService {
 		// be defensive. Known non-path arguments (e.g. grep patterns) are hard
 		// to distinguish from filenames, so we check them all — a pattern like
 		// "foo" resolves to cwdPath/foo which is in-scope, so this is safe.
-		const roots = [resolve(projectRoot), resolve(cwdPath)];
 		for (let i = execIndex + 1; i < fullTokens.length; i += 1) {
 			const token = fullTokens[i];
 			if (token.startsWith("-")) continue;
@@ -894,10 +984,12 @@ export class PermissionService {
 			// non-path-like tokens (branch names, refs, patterns, etc.)
 			if (executable === "git") continue;
 			const resolved = isAbsolute(token) ? resolve(token) : resolve(cwdPath, token);
-			if (!roots.some((root) => this.isWithinRoot(resolved, root))) return false;
+			if (!this.isWithinAllowedRoots(resolved, allowedRoots)) {
+				return { allow: false, nextCwdPath: cwdPath };
+			}
 		}
 
-		return true;
+		return { allow: true, nextCwdPath: cwdPath };
 	}
 
 	private async authorizeCommand(
@@ -913,10 +1005,20 @@ export class PermissionService {
 			};
 		}
 
-		// Auto-allow: all segments must be known read-only and in-scope
-		const allAutoAllowable = assessments.every((a) =>
-			this.isSegmentAutoAllowable(a, params.projectRoot, params.cwdPath),
-		);
+		let effectiveCwdPath = params.cwdPath;
+		let allAutoAllowable = true;
+		for (const assessment of assessments) {
+			const evaluation = this.evaluateSegmentAutoAllowable(
+				assessment,
+				params.projectRoot,
+				effectiveCwdPath,
+			);
+			if (!evaluation.allow) {
+				allAutoAllowable = false;
+				break;
+			}
+			effectiveCwdPath = evaluation.nextCwdPath;
+		}
 		if (allAutoAllowable) {
 			return { allow: true };
 		}

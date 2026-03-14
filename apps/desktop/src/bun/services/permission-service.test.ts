@@ -382,6 +382,34 @@ describe("PermissionService", () => {
 			expect(prompts.length).toBe(0);
 		});
 
+		test("auto-allows worktree-scoped cd plus grep with stderr redirected to /dev/null", async () => {
+			const { service, prompts, base } = createHarness();
+			const worktreePath =
+				"/Users/goverpie/Library/Application Support/Pi GUI/worktrees/470300ca-1d70-4b22-bf51-ebeb826e1fc7/pi-gui-f9df837b";
+			const result = await service.authorizeToolCall({
+				...base,
+				projectRoot: "/Users/goverpie/src/pi-gui",
+				cwdPath: worktreePath,
+				toolName: "bash",
+				input: {
+					command: `cd "${worktreePath}" && grep -r "react-markdown\\|remark-gfm\\|rehype" package.json apps/desktop/package.json 2>/dev/null`,
+				},
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
+		test("auto-allows relative cd before later in-scope reads", async () => {
+			const { service, prompts, base } = createHarness();
+			const result = await service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cd apps/desktop && cat package.json" },
+			});
+			expect(result.allow).toBe(true);
+			expect(prompts.length).toBe(0);
+		});
+
 		test("prompts for cat with out-of-scope path", async () => {
 			const { service, prompts, base } = createHarness();
 			const request = service.authorizeToolCall({
@@ -391,6 +419,24 @@ describe("PermissionService", () => {
 			});
 			const prompt = await waitForPrompt(prompts, 0);
 			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for cd to an out-of-scope path", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cd /etc && cat hosts" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			expect(prompt.commandTokens).toEqual(["cd"]);
 			service.resolvePrompt({
 				promptId: prompt.id,
 				decision: "deny_once",
@@ -482,6 +528,24 @@ describe("PermissionService", () => {
 			});
 			const prompt = await waitForPrompt(prompts, 0);
 			expect(prompt.toolName).toBe("bash");
+			service.resolvePrompt({
+				promptId: prompt.id,
+				decision: "deny_once",
+			});
+			const result = await request;
+			expect(result.allow).toBe(false);
+		});
+
+		test("prompts for cd with shell-special home expansion", async () => {
+			const { service, prompts, base } = createHarness();
+			const request = service.authorizeToolCall({
+				...base,
+				toolName: "bash",
+				input: { command: "cd ~ && pwd" },
+			});
+			const prompt = await waitForPrompt(prompts, 0);
+			expect(prompt.toolName).toBe("bash");
+			expect(prompt.commandTokens).toEqual(["cd", "~"]);
 			service.resolvePrompt({
 				promptId: prompt.id,
 				decision: "deny_once",
